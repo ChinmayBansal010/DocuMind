@@ -49,7 +49,7 @@ Test connectivity from the DocuMind container:
 
     docker compose exec documind python -c "import urllib.request; print(urllib.request.urlopen('http://host.docker.internal:11434/api/tags', timeout=5).read().decode())"
 
-Compose configures the backend to use 'http://host.docker.internal:11434'. Keep your firewall restrictive. Do not expose Ollama's port to the public internet or untrusted networks. Without Docker, use 'OLLAMA_URL=http://localhost:11434' in .env. The default model is 'llama3.1:8b'; change OLLAMA_MODEL in .env if required. If Ollama is unavailable, DocuMind falls back to retrieved passages and includes the connection/model error.
+Docker Compose explicitly configures the backend to use 'http://host.docker.internal:11434', regardless of an old OLLAMA_URL value in your .env file. For a native (non-Docker) run, set OLLAMA_URL=http://localhost:11434 in .env instead. Keep your firewall restrictive. Do not expose Ollama's port to the public internet or untrusted networks. Without Docker, use 'OLLAMA_URL=http://localhost:11434' in .env. The default model is 'llama3.1:8b'; change OLLAMA_MODEL in .env if required. If Ollama is unavailable, DocuMind falls back to retrieved passages and includes the connection/model error.
 
 ## Native run
 Requires Python 3.11+, Node.js 20+, npm and Tesseract OCR for scanned documents.
