@@ -355,6 +355,46 @@ def test_rag_answer_rejects_invalid_source_ids(monkeypatch):
     assert "Source passage." in result
 
 
+def test_rag_answer_retries_malformed_json_once(monkeypatch):
+    from app.engines import rag
+
+    monkeypatch.setattr(settings, "ollama_model", "llama3.1:8b")
+    responses = iter(
+        [
+            {"message": {"content": "not valid json"}},
+            {
+                "message": {
+                    "content": '{"answer":"This is a services contract.","source_ids":[1]}'
+                }
+            },
+        ]
+    )
+    calls = []
+
+    def fake_post(_url, **kwargs):
+        calls.append(kwargs["json"])
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: next(responses),
+        )
+
+    monkeypatch.setattr(rag.requests, "post", fake_post)
+    result = rag.answer(
+        "What is this contract about?",
+        [
+            {
+                "document_name": "services.pdf",
+                "page": 1,
+                "text": "Provider will configure a document-review workspace.",
+            }
+        ],
+    )
+
+    assert result == "This is a services contract. [S1]"
+    assert len(calls) == 2
+    assert "Return exactly one valid JSON object" in calls[1]["messages"][1]["content"]
+
+
 def test_project_crud_and_cross_user_isolation(client):
     created = client.post(
         "/api/v1/projects",

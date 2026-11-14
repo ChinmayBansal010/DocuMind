@@ -133,26 +133,43 @@ def answer(question: str, sources: list[dict]) -> str:
             "required": ["answer", "source_ids"],
             "additionalProperties": False,
         }
-        try:
-            response = requests.post(
-                settings.ollama_url + "/api/chat",
-                json={
-                    "model": settings.ollama_model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "format": response_schema,
-                    "stream": False,
-                    "options": {"temperature": 0, "num_predict": 256},
-                },
-                timeout=(5, 180),
-            )
-            response.raise_for_status()
-            payload = response.json()
-            message = payload.get("message") if isinstance(payload, dict) else None
-            content = message.get("content", "") if isinstance(message, dict) else ""
-            result = json.loads(content)
+        for attempt in range(2):
+            try:
+                retry_note = (
+                    "\nReturn exactly one valid JSON object matching the required schema; "
+                    "do not include markdown or surrounding text."
+                    if attempt
+                    else ""
+                )
+                response = requests.post(
+                    settings.ollama_url + "/api/chat",
+                    json={
+                        "model": settings.ollama_model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt + retry_note},
+                        ],
+                        "format": response_schema,
+                        "stream": False,
+                        "options": {"temperature": 0, "num_predict": 256},
+                    },
+                    timeout=(5, 180),
+                )
+                response.raise_for_status()
+                payload = response.json()
+                message = payload.get("message") if isinstance(payload, dict) else None
+                content = message.get("content", "") if isinstance(message, dict) else ""
+                result = json.loads(content)
+            except json.JSONDecodeError as exc:
+                if attempt == 0:
+                    logger.warning("Ollama grounded response was invalid JSON; retrying once.")
+                    continue
+                logger.warning("Ollama grounded response unavailable: %s", type(exc).__name__)
+                break
+            except (requests.RequestException, ValueError, TypeError) as exc:
+                logger.warning("Ollama grounded response unavailable: %s", type(exc).__name__)
+                break
+
             raw_answer = result.get("answer") if isinstance(result, dict) else None
             generated = raw_answer.strip() if isinstance(raw_answer, str) else ""
             source_ids = result.get("source_ids") if isinstance(result, dict) else None
@@ -173,8 +190,6 @@ def answer(question: str, sources: list[dict]) -> str:
             if missing_citations:
                 generated += " " + " ".join(f"[S{value}]" for value in missing_citations)
             return generated
-        except (requests.RequestException, ValueError, TypeError) as exc:
-            logger.warning("Ollama grounded response unavailable: %s", type(exc).__name__)
     return _extractive_fallback(sources)
 
 
