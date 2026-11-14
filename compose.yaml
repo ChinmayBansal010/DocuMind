@@ -11,12 +11,22 @@ services:
         required: false
     environment:
       DOCUMIND_DATA_DIR: /app/data
-      OLLAMA_URL: http://host.docker.internal:11434
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - documind_data:/app/data
     restart: unless-stopped
+  ollama:
+    image: ollama/ollama:latest
+    container_name: documind-ollama
+    profiles: ["ollama"]
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
 volumes:
   documind_data:
+  ollama_models:
