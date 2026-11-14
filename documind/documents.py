@@ -9,7 +9,7 @@ def extract_document(path):
     ext = path.suffix.lower()
     if ext not in SUPPORTED:
         raise ValueError(f"Unsupported file type: {ext}")
-    text, pages = "", 1
+    text, pages = "", None
     if ext == ".pdf":
         import fitz
         doc = fitz.open(path)

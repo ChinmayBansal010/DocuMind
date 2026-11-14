@@ -2,22 +2,24 @@
 
 _Last updated: 14 November 2026_
 
-## Acceptance and service
-By installing or using DocuMind, you agree to these terms. DocuMind is a personal document organization and AI-assisted information tool. Features and optional integrations may change.
+## Service
 
-## Your content and responsibilities
-You are responsible for the documents and text you upload and must have the rights and permissions needed to process them, including through third-party AI services you enable. Do not use the application to violate laws or rights, process information without authorization, compromise systems or expose other people's information.
+DocuMind is software for organizing agreements and assisting human review. Availability depends on the operator's Neon database, hosting environment, and any configured Ollama service.
+
+## Your documents
+
+You are responsible for the documents you upload and must have permission to process them. Configure access, backups, retention, and encryption appropriately for the information involved.
 
 ## No professional advice
-DocuMind is not legal, medical, financial, tax or other professional advice. AI output can be inaccurate or incomplete. Verify important information against original sources and qualified professionals.
 
-## Third-party services and charges
-Optional Azure and Ollama integrations are subject to separate provider terms, availability, privacy practices and pricing. You are responsible for reviewing those terms and any charges.
+DocuMind's extracted facts and AI-generated analysis are informational only, may be incomplete or inaccurate, and are not legal advice. Confirm material findings against the complete source contract and consult a qualified professional before making decisions.
 
-## Availability and liability
-The software is provided on an as-available basis without a promise of uninterrupted or error-free operation. Any limitation of liability is subject to applicable law; mandatory consumer rights are not excluded.
+## Third-party services
 
-## Publisher and governing law
-The contracting legal entity, contact details and governing jurisdiction have not been supplied. Complete these with qualified counsel before commercial release.
+Neon Auth and PostgreSQL are subject to Neon's terms. If enabled, Ollama is operated separately and may process contract text. Review applicable provider terms and configure a suitable deployment.
 
-> This is a starter template, not legal advice.
+## Publisher
+
+The legal publisher, contact details, and governing jurisdiction have not been supplied. Complete them before commercial release.
+
+> This document is a starter template, not legal advice.

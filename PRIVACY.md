@@ -2,28 +2,28 @@
 
 _Last updated: 14 November 2026_
 
-## Scope
-This release is a self-hosted, single-user application intended to run on a device you control. It is not a hosted account service.
+## Data handled
 
-## Data stored
-Uploaded documents, extracted text, filenames, file hashes and basic activity records are stored in the application data directory and SQLite database on the machine running DocuMind.
+Neon Managed Auth handles registration credentials and browser sessions. DocuMind stores the verified Auth subject, profile, projects, contracts, versions, extracted text, search chunks, analysis results, conversations, obligations, deadlines, and audit records in the configured Neon PostgreSQL branch. Original uploads are stored in the configured local data directory (or persistent container volume).
 
-## Processing and third-party services
-Local parsing, search and storage run on your device. If configured, Azure AI Search receives extracted text chunks for indexing; Azure Document Intelligence receives the selected original file when layout extraction is requested. Azure AI Content Safety receives user questions, generated answers and generated contract reports for moderation. Prompt Shields receives user prompts and retrieved passages, and the first 10,000 characters of a contract during contract analysis. Azure AI Language receives up to 5,000 characters from a selected document when insights are explicitly requested and may return detected PII entities. Azure AI Translator receives only text submitted for translation. Ollama receives the full extracted contract text (up to 40,000 characters) during contract analysis, and questions plus retrieved passages during Q&A. Review each provider's own privacy terms and retention rules.
+## Processing
+
+PDF and DOCX content is sent to the configured Azure AI Document Intelligence resource; DOCX files are first converted locally to PDF. TXT is decoded locally. Extracted text is processed by Azure AI Language for language detection, named entities, and key phrases, and by Azure AI Content Safety for moderation and prompt-injection screening. When a user requests translation, the chosen contract text or saved summary is sent to Azure AI Translator's text API. Original-format document translation is not used.
+
+Contract chunks, page numbers, document labels, opaque owner/project/contract/version identifiers, and locally generated Ollama vectors are sent to the configured Azure AI Search index for hybrid text/vector retrieval. Search queries are restricted by verified owner and project IDs and only the latest contract versions. If enabled, Ollama receives contract text for local reasoning and retrieved passages plus the user's question for assistant answers. Configure Azure and Ollama with appropriate access controls, retention settings, and regional availability; review their data-processing terms before uploading contracts.
+
+Only Azure AI F0/Free service capabilities are used. F0 quotas and Search Free storage limits can cause processing failures; those failures are reported rather than silently bypassed. Application-side monthly counters track Doc Intelligence pages, Language and Content Safety text records, and Translator characters, but other Azure subscription workloads may independently consume the same service quotas.
+
+## Security and retention
+
+Database and local file retention follow the operator's Neon, host, backup, and deletion policies. Deleting a project removes its application records and locally stored source files. Optional AES-GCM file encryption protects source files only; extracted text and related records remain in PostgreSQL without application-level encryption. Keep encryption keys and backups secure.
 
 ## AI-generated content
-AI answers may be incomplete or incorrect. Review cited passages and original files before relying on an answer.
 
-## Retention and deletion
-Local documents remain until you delete them or remove the application data directory. Deleting local copies does not automatically delete copies already sent to third-party providers; their retention policies apply.
+AI findings can be incomplete or wrong. Source excerpts and available page references are included to support review; they do not establish legal conclusions. Verify results against the complete original document.
 
-## Security
-DocuMind does not encrypt local files or its database. Protect your device account, use full-disk encryption and secure backups. Do not expose this release to the public internet.
+## Publisher information
 
-## Sensitive information
-Do not upload highly sensitive personal, financial, health, legal or children's information unless you have assessed the risks and any enabled third-party service is suitable.
+The publisher's legal identity, contact, jurisdiction, retention periods, and privacy-request process have not been supplied. Complete these items before offering a hosted commercial service.
 
-## Publisher and privacy contact
-The publisher's verified legal name, privacy contact, jurisdiction and privacy-request process have not been supplied. These must be completed before commercial distribution.
-
-> This is a starter template, not legal advice or a compliance certification.
+> This document is a project template, not legal advice or a compliance certification.

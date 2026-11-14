@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VITE_NEON_AUTH_URL: ${VITE_NEON_AUTH_URL:-}
+        NEON_AUTH_BASE_URL: ${NEON_AUTH_BASE_URL:-}
     container_name: documind
     ports:
       - "127.0.0.1:8000:8000"
@@ -12,7 +15,7 @@ services:
     environment:
       DOCUMIND_DATA_DIR: /app/data
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

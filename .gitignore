@@ -8,3 +8,4 @@ data/*
 .DS_Store
 .neon
 node_modules/
+frontend/dist/

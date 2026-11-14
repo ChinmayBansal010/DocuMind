@@ -1,9 +1,15 @@
 import re
 
 PATTERNS = {
-    "InvoiceNumber": [r"(?:invoice\s*(?:number|no\.?|#))\s*[:#-]?\s*([A-Z0-9][A-Z0-9/-]+)"],
+    "InvoiceNumber": [
+        r"(?:invoice\s*(?:number|no\.?|#))\s*[:#-]?\s*([A-Z0-9][A-Z0-9/-]+)",
+        r"(?:invoice\s*(?:number|no\.?|#))\s*[:#-]?\s*(?:#)?\s*([A-Z0-9][A-Z0-9/-]+)",
+    ],
     "InvoiceDate": [r"(?:invoice\s*date|date)\s*[:#-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})"],
-    "CustomerName": [r"(?:customer|bill\s*to|client)\s*[:#-]?\s*([A-Za-z][A-Za-z0-9 &.,'-]{2,})"],
+    "CustomerName": [
+        r"(?:customer(?:\s+name)?|bill\s*to|client)\s*[:#-]?\s*([A-Za-z][A-Za-z0-9 &.,'/-]{2,})",
+        r"(?:customer(?:\s+name)?|bill\s*to|client)\s*[:#-]?\s*(?:name\s*)?([A-Za-z][A-Za-z0-9 &.,'/-]{2,})",
+    ],
     "TaxAmount": [r"(?:tax|gst|vat)\s*(?:amount)?\s*[:#-]?\s*(?:₹|INR|Rs\.?)?\s*([0-9,]+(?:\.\d{1,2})?)"],
     "TotalAmount": [r"(?:grand\s*total|total\s*(?:amount|due)?)\s*[:#-]?\s*(?:₹|INR|Rs\.?)?\s*([0-9,]+(?:\.\d{1,2})?)"]
 }
