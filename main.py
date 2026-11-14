@@ -12,7 +12,7 @@ from documind.documents import extract_document, split_text, SUPPORTED
 from documind.storage import save_upload, list_documents, delete_document
 from documind.search import search_chunks, answer_question
 from documind.azure_services import analyze_with_document_intelligence, moderate_text, detect_prompt_injection, analyze_language, translate_text
-from documind.azure_search import is_configured as search_configured, upload_chunks, search_chunks as azure_search_chunks
+from documind.azure_search import is_configured as search_configured, upload_chunks, search_chunks as azure_search_chunks, delete_document_chunks
 from documind.config import settings
 from documind.extraction import extract_fields_locally
 from documind.contract_analysis import analyze_contract, get_saved_analysis, initialize_contract_storage, save_analysis
@@ -161,14 +161,20 @@ def ask_contract(document_id: int, payload: ContractQuestionRequest):
     if safety.get("blocked"):
         status = 503 if safety.get("status") == "unavailable" else 400
         raise HTTPException(status_code=status, detail="Azure AI Content Safety blocked this request or is unavailable.")
-    hits = search_chunks(question, [doc["name"]], 5)
+    if search_configured():
+        try:
+            hits = azure_search_chunks(question, [doc["name"]], 5)
+        except Exception:
+            hits = search_chunks(question, [doc["name"]], 5)
+    else:
+        hits = search_chunks(question, [doc["name"]], 5)
     shield = detect_prompt_injection(question, [hit["text"] for hit in hits])
     if shield.get("blocked"):
         status = 503 if shield.get("status") == "unavailable" else 400
         raise HTTPException(status_code=status, detail="Prompt Shields blocked this request or is unavailable.")
     flagged = set(shield.get("flagged_documents", []))
     safe_hits = [hit for index, hit in enumerate(hits) if index not in flagged]
-    if not safe_hits:
+    if not safe_hits and hits:
         raise HTTPException(status_code=400, detail="Retrieved contract passages contained prompt-injection instructions and were excluded.")
     answer = answer_question(question, safe_hits)
     output_safety = moderate_text(answer)
@@ -182,9 +188,15 @@ def remove_document(document_id: int):
     doc = next((d for d in list_documents() if d["id"] == document_id), None)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
+    cloud_cleanup = {"configured": False}
+    if search_configured():
+        try:
+            cloud_cleanup = delete_document_chunks(doc["sha256"])
+        except Exception as exc:
+            cloud_cleanup = {"configured": True, "error": str(exc)}
     delete_document(document_id)
     record_event("delete", doc["name"], "Document removed")
-    return {"deleted": document_id}
+    return {"deleted": document_id, "azure_search_cleanup": cloud_cleanup}
 
 @app.post("/api/ask")
 def ask(payload: QuestionRequest):
@@ -211,7 +223,7 @@ def ask(payload: QuestionRequest):
         raise HTTPException(status_code=status, detail="Prompt Shields blocked this request or is unavailable.")
     flagged = set(shield.get("flagged_documents", []))
     safe_hits = [hit for index, hit in enumerate(hits) if index not in flagged]
-    if not safe_hits:
+    if not safe_hits and hits:
         raise HTTPException(status_code=400, detail="Retrieved passages contained prompt-injection instructions and were excluded.")
     answer = answer_question(question, safe_hits)
     output_safety = moderate_text(answer)
