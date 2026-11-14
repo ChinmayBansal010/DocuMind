@@ -164,11 +164,14 @@ def ask_contract(document_id: int, payload: ContractQuestionRequest):
     if safety.get("blocked"):
         status = 503 if safety.get("status") == "unavailable" else 400
         raise HTTPException(status_code=status, detail="Azure AI Content Safety blocked this request or is unavailable.")
+    retrieval = "Local TF-IDF"
     if search_configured():
         try:
             hits = azure_search_chunks(question, [doc["name"]], 5)
+            retrieval = "Azure AI Search"
         except Exception:
             hits = search_chunks(question, [doc["name"]], 5)
+            retrieval = "Local TF-IDF (Azure Search fallback)"
     else:
         hits = search_chunks(question, [doc["name"]], 5)
     shield = detect_prompt_injection(question, [hit["text"] for hit in hits])
@@ -184,7 +187,7 @@ def ask_contract(document_id: int, payload: ContractQuestionRequest):
     if output_safety.get("blocked"):
         raise HTTPException(status_code=502, detail="The generated answer did not pass the content-safety check.")
     record_event("contract_query", doc["name"], question[:240])
-    return {"answer": answer, "sources": safe_hits, "document": doc["name"], "retrieval": "Azure AI Search" if search_configured() else "Local TF-IDF", "answer_model": settings.ollama_model or "Extractive", "safety": {"moderation": safety.get("provider"), "prompt_shields": shield.get("provider"), "output_checked": True}}
+    return {"answer": answer, "sources": safe_hits, "document": doc["name"], "retrieval": retrieval, "answer_model": settings.ollama_model or "Extractive", "safety": {"moderation": safety.get("provider"), "prompt_shields": shield.get("provider"), "output_checked": True}}
 
 @app.delete("/api/documents/{document_id}")
 def remove_document(document_id: int):
