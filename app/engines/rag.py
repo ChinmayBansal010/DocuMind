@@ -20,14 +20,36 @@ def embed(texts: list[str]) -> list[list[float]]:
                 json={"model": settings.ollama_embedding_model, "input": batch},
                 timeout=(5, 90),
             )
-            response.raise_for_status()
-            result = response.json()
-            vectors = result.get("embeddings") if isinstance(result, dict) else None
-        except (requests.RequestException, ValueError, TypeError) as exc:
+        except requests.ConnectionError as exc:
             raise AzureServiceError(
                 "Search",
-                "requires the configured local Ollama embedding model; verify Ollama is running and the model is installed.",
+                "could not reach Ollama using OLLAMA_URL; in Docker, use "
+                "http://host.docker.internal:11434 for an Ollama service on the host.",
             ) from exc
+        except requests.RequestException as exc:
+            raise AzureServiceError(
+                "Search", "could not complete the Ollama embedding request."
+            ) from exc
+        if response.status_code == 404:
+            raise AzureServiceError(
+                "Search",
+                f"Ollama does not have the configured embedding model "
+                f"'{settings.ollama_embedding_model}' installed.",
+                status_code=503,
+            )
+        if not response.ok:
+            raise AzureServiceError(
+                "Search",
+                f"Ollama's embedding API returned HTTP {response.status_code}.",
+                status_code=503,
+            )
+        try:
+            result = response.json()
+        except (ValueError, TypeError) as exc:
+            raise AzureServiceError(
+                "Search", "Ollama returned an invalid embedding response.", status_code=502
+            ) from exc
+        vectors = result.get("embeddings") if isinstance(result, dict) else None
         if (
             not isinstance(vectors, list)
             or len(vectors) != len(batch)

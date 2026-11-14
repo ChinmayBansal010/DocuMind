@@ -8,6 +8,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _normalize_ollama_url(value: str, *, in_container: bool) -> str:
+    value = value.strip().rstrip("/")
+    if not in_container:
+        return value
+    parsed = urlsplit(value)
+    if parsed.hostname not in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}:
+        return value
+    netloc = "host.docker.internal"
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return parsed._replace(netloc=netloc).geturl().rstrip("/")
+
+
 class Settings:
     def __init__(self) -> None:
         self.database_url = os.getenv("DATABASE_URL", "").strip()
@@ -26,7 +39,10 @@ class Settings:
         self.max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "20"))
         self.chunk_size = int(os.getenv("CHUNK_SIZE", "900"))
         self.chunk_overlap = int(os.getenv("CHUNK_OVERLAP", "120"))
-        self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+        self.ollama_url = _normalize_ollama_url(
+            os.getenv("OLLAMA_URL", "http://localhost:11434"),
+            in_container=Path("/.dockerenv").exists(),
+        )
         self.ollama_model = os.getenv("OLLAMA_MODEL", "").strip()
         self.ollama_embedding_model = os.getenv(
             "OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"

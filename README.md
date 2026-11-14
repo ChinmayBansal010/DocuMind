@@ -120,7 +120,7 @@ if not exist .env copy .env.example .env
 notepad .env
 ```
 
-Set the existing Neon branch's database, Auth base/JWKS URLs, and all five required Azure AI F0/Free service settings. Keep `OLLAMA_EMBEDDING_MODEL=nomic-embed-text`; set `OLLAMA_MODEL=llama3.1:8b` to enable local reasoning. Leave it blank to disable model-generated reasoning. For Docker with Ollama installed on Windows, set `OLLAMA_URL=http://host.docker.internal:11434`. Add `http://localhost:8000` to that Neon Auth branch's trusted domains for Docker, or `http://localhost:5173` for Vite development. Startup will fail if the required Azure configuration is missing.
+Set the existing Neon branch's database, Auth base/JWKS URLs, and all five required Azure AI F0/Free service settings. Keep `OLLAMA_EMBEDDING_MODEL=nomic-embed-text`; set `OLLAMA_MODEL=llama3.1:8b` to enable local reasoning. Leave it blank to disable model-generated reasoning. For Docker with Ollama installed on Windows, set `OLLAMA_URL=http://host.docker.internal:11434`; container loopback URLs are automatically redirected to the Docker host. Add `http://localhost:8000` to that Neon Auth branch's trusted domains for Docker, or `http://localhost:5173` for Vite development. Startup will fail if the required Azure configuration is missing.
 
 For Vite development, open one CMD window at the repository root:
 

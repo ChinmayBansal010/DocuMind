@@ -204,6 +204,35 @@ def test_authenticated_user_profile_is_persisted_by_neon_subject(tmp_path, monke
     engine.dispose()
 
 
+def test_ollama_loopback_url_is_redirected_to_docker_host_only_in_container():
+    from app.core.config import _normalize_ollama_url
+
+    assert _normalize_ollama_url("http://localhost:11434/", in_container=True) == (
+        "http://host.docker.internal:11434"
+    )
+    assert _normalize_ollama_url("http://127.0.0.1:11434", in_container=True) == (
+        "http://host.docker.internal:11434"
+    )
+    assert _normalize_ollama_url("http://localhost:11434", in_container=False) == (
+        "http://localhost:11434"
+    )
+    assert _normalize_ollama_url("http://ollama:11434", in_container=True) == (
+        "http://ollama:11434"
+    )
+
+
+def test_ollama_embedding_connection_error_explains_docker_host_route(monkeypatch):
+    import requests
+    from app.engines import rag
+
+    def fail_request(*_args, **_kwargs):
+        raise requests.ConnectionError()
+
+    monkeypatch.setattr(rag.requests, "post", fail_request)
+    with pytest.raises(AzureServiceError, match="host.docker.internal"):
+        rag.embed(["embedding connectivity test"])
+
+
 def test_project_crud_and_cross_user_isolation(client):
     created = client.post(
         "/api/v1/projects",
