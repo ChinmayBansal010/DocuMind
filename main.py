@@ -135,6 +135,9 @@ def analyze_contract_document(document_id: int):
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
     analysis, model = analyze_contract(doc["text"])
+    analysis_safety = moderate_text(json.dumps(analysis, ensure_ascii=False))
+    if analysis_safety.get("blocked"):
+        raise HTTPException(status_code=502, detail="The contract analysis did not pass Azure AI Content Safety.")
     save_analysis(document_id, analysis, model)
     record_event("contract_analysis", doc["name"], f"Analysis generated using {model}")
     return {"document": public_document(doc), "analysis": analysis, "model": model}
@@ -181,7 +184,7 @@ def ask_contract(document_id: int, payload: ContractQuestionRequest):
     if output_safety.get("blocked"):
         raise HTTPException(status_code=502, detail="The generated answer did not pass the content-safety check.")
     record_event("contract_query", doc["name"], question[:240])
-    return {"answer": answer, "sources": safe_hits, "document": doc["name"], "answer_model": settings.ollama_model or "Extractive", "safety": {"moderation": safety.get("provider"), "prompt_shields": shield.get("provider"), "output_checked": True}}
+    return {"answer": answer, "sources": safe_hits, "document": doc["name"], "retrieval": "Azure AI Search" if search_configured() else "Local TF-IDF", "answer_model": settings.ollama_model or "Extractive", "safety": {"moderation": safety.get("provider"), "prompt_shields": shield.get("provider"), "output_checked": True}}
 
 @app.delete("/api/documents/{document_id}")
 def remove_document(document_id: int):
@@ -215,6 +218,7 @@ def ask(payload: QuestionRequest):
             retrieval = "Azure AI Search"
         except Exception:
             hits = search_chunks(question, payload.documents or None, payload.top)
+            retrieval = "Local TF-IDF (Azure Search fallback)"
     else:
         hits = search_chunks(question, payload.documents or None, payload.top)
     shield = detect_prompt_injection(question, [hit["text"] for hit in hits])
