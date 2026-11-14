@@ -24,7 +24,10 @@ def analyze_with_document_intelligence(path):
     try:
         url = f"{settings.document_intelligence_endpoint}/documentintelligence/documentModels/{settings.document_intelligence_model}:analyze"
         headers = {"Ocp-Apim-Subscription-Key": settings.document_intelligence_key, "Content-Type": "application/octet-stream"}
-        response = requests.post(url, params={"api-version": "2024-11-30"}, headers=headers, data=Path(path).read_bytes(), timeout=45)
+        file_bytes = Path(path).read_bytes()
+        if len(file_bytes) > 4 * 1024 * 1024:
+            raise ValueError("Azure Document Intelligence F0 supports files up to 4 MB. Use local extraction or reduce the file size.")
+        response = requests.post(url, params={"api-version": "2024-11-30"}, headers=headers, data=file_bytes, timeout=45)
         response.raise_for_status()
         operation = response.headers.get("Operation-Location")
         if not operation:
@@ -42,7 +45,20 @@ def analyze_with_document_intelligence(path):
                             "confidence": float(value.get("confidence", 0.0)),
                             "source": "Azure Document Intelligence"
                         }
-                return {"configured": True, "fields": fields, "pages_analyzed": payload.get("analyzeResult", {}).get("pages", []) and len(payload["analyzeResult"]["pages"]) or 0}
+                analyze_result = payload.get("analyzeResult", {})
+                tables = []
+                for table in analyze_result.get("tables", []):
+                    cells = {}
+                    for cell in table.get("cells", []):
+                        cells.setdefault(cell.get("rowIndex", 0), {})[cell.get("columnIndex", 0)] = cell.get("content", "")
+                    tables.append([[cells[row].get(column, "") for column in range(max(cells[row].keys(), default=-1) + 1)] for row in sorted(cells)])
+                return {
+                    "configured": True,
+                    "fields": fields,
+                    "extracted_text": analyze_result.get("content", ""),
+                    "tables": tables,
+                    "pages_analyzed": len(analyze_result.get("pages", []))
+                }
             if payload.get("status") == "failed":
                 raise RuntimeError(payload.get("error", {}).get("message", "Analysis failed"))
             time.sleep(2)
