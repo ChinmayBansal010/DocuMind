@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, FileText, MessageSquareText, MoreHorizontal, Pencil, Plus, Search, Trash2, UploadCloud } from "lucide-react";
+import {
+  ArrowLeft, FilePlus2, FileText, MessageSquareText, MoreHorizontal,
+  Pencil, Plus, Search, Trash2, UploadCloud,
+} from "lucide-react";
 import { api } from "../../services/api";
+import AssistantChat from "../assistant/AssistantChat";
+import "./ProjectWorkspace.css";
 
 export default function ProjectWorkspace({ projectId, onBack, onOpenContract, setNotice }) {
   const [project, setProject] = useState(null);
@@ -8,10 +13,11 @@ export default function ProjectWorkspace({ projectId, onBack, onOpenContract, se
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const fileInput = useRef(null);
-  const [question, setQuestion] = useState("");
-  const [projectAnswer, setProjectAnswer] = useState(null);
-  const [conversationId, setConversationId] = useState(null);
+  const versionInput = useRef(null);
+  const versionTarget = useRef(null);
+  const [openContractMenu, setOpenContractMenu] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -43,6 +49,7 @@ export default function ProjectWorkspace({ projectId, onBack, onOpenContract, se
     } finally {
       setBusy(false);
       if (fileInput.current) fileInput.current.value = "";
+      if (versionInput.current) versionInput.current.value = "";
     }
   };
 
@@ -63,24 +70,26 @@ export default function ProjectWorkspace({ projectId, onBack, onOpenContract, se
     } catch (error) { setNotice(error.message); }
   };
 
-  const askProject = async (event) => {
-    event.preventDefault();
-    if (!question.trim()) return;
+  const deleteContract = async (contract) => {
+    if (!window.confirm(`Delete "${contract.name}" and all its versions?`)) return;
     setBusy(true);
-    setProjectAnswer(null);
     try {
-      const result = await api(`/projects/${projectId}/assistant/ask`, {
-        method: "POST",
-        body: JSON.stringify({ question: question.trim(), conversation_id: conversationId }),
-      });
-      setConversationId(result.conversation_id);
-      setProjectAnswer(result);
-      setQuestion("");
-    } catch (error) { setNotice(error.message); }
-    finally { setBusy(false); }
+      await api(`/contracts/${contract.id}`, { method: "DELETE" });
+      setOpenContractMenu(null);
+      setNotice(`Deleted "${contract.name}".`);
+      await load();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
   };
 
-  const visible = contracts.filter((contract) => contract.name.toLowerCase().includes(search.toLowerCase()));
+  const visible = contracts.filter((contract) => (
+    contract.name.toLowerCase().includes(search.toLowerCase())
+    && (statusFilter === "all" || contract.status === statusFilter)
+  ));
+  const hasOpenVisibleMenu = visible.some((contract) => contract.id === openContractMenu);
   if (loading) return <div className="page-wrap"><div className="skeleton large-skeleton" /></div>;
   if (!project) return null;
   return (
@@ -93,31 +102,60 @@ export default function ProjectWorkspace({ projectId, onBack, onOpenContract, se
           <button className="button danger-ghost" onClick={remove}><Trash2 size={15} /> Delete</button>
         </div>
       </section>
-      <section className="section-head">
+      <nav className="project-shortcut-nav" aria-label="Project workspace sections">
+        <a href="#project-contracts"><FileText size={15} /> Contracts <b>{contracts.length}</b></a>
+        <a href="#project-assistant"><MessageSquareText size={15} /> Project assistant</a>
+        <button type="button" onClick={rename}><Pencil size={14} /> Project settings</button>
+      </nav>
+      <section className="section-head" id="project-contracts">
         <div><span className="eyebrow">AGREEMENTS</span><h2>Contracts <span className="count-pill">{contracts.length}</span></h2></div>
         <div className="contract-actions">
           <label className="search-control"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search contracts" /></label>
+          <label className="contract-status-filter"><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All statuses</option><option value="ready">Ready</option><option value="processing">Processing</option><option value="failed">Failed</option></select></label>
           <input ref={fileInput} hidden type="file" multiple accept=".pdf,.docx,.txt" onChange={(event) => upload(event.target.files)} />
           <button className="button primary" onClick={() => fileInput.current?.click()} disabled={busy}><Plus size={16} /> {busy ? "Processing…" : "Upload contracts"}</button>
         </div>
       </section>
-      {visible.length ? <div className="contract-table">
+      {visible.length ? <div className={`contract-table${hasOpenVisibleMenu ? " has-open-menu" : ""}`}>
         <div className="table-header"><span>NAME</span><span>STATUS</span><span>VERSIONS</span><span>UPDATED</span><span /></div>
         {visible.map((contract) => <div className="table-row" key={contract.id}>
           <button className="contract-name" onClick={() => onOpenContract(contract.id)}><span className="file-mark"><FileText size={17} /></span><span><b>{contract.name}</b><small>{contract.file_type?.toUpperCase() || "CONTRACT"}{contract.page_count ? ` · ${contract.page_count} pages` : ""}</small></span></button>
           <span><i className={`status-dot ${contract.status}`} />{contract.status}</span><span>{contract.version_count}</span>
           <span>{new Date(contract.updated_at).toLocaleDateString()}</span>
-          <button className="icon-action" aria-label="Add version" title="Upload new version" onClick={() => uploadPicker(contract.id)}><MoreHorizontal size={17} /></button>
+          <div
+            className="contract-row-actions"
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setOpenContractMenu(null);
+            }}
+          >
+            <button
+              type="button"
+              className="icon-action"
+              aria-label={`Contract actions: ${contract.name}`}
+              aria-haspopup="menu"
+              aria-expanded={openContractMenu === contract.id}
+              onClick={() => setOpenContractMenu(openContractMenu === contract.id ? null : contract.id)}
+            ><MoreHorizontal size={18} /></button>
+            {openContractMenu === contract.id ? (
+              <div className="contract-action-menu" role="menu">
+                <button type="button" role="menuitem" onClick={() => { setOpenContractMenu(null); uploadPicker(contract.id); }}>
+                  <FilePlus2 size={15} /> Upload new version
+                </button>
+                <button type="button" role="menuitem" disabled={busy} onClick={() => deleteContract(contract)}>
+                  <Trash2 size={15} /> Delete contract
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>)}
-      </div> : <div className="empty-panel"><UploadCloud size={26} /><h3>{search ? "No contracts match" : "No contracts in this project yet"}</h3><p>{search ? "Try another name." : "Upload PDF, Word, or text agreements to begin."}</p>{!search && <button className="button primary" onClick={() => fileInput.current?.click()}><Plus size={16} /> Add contracts</button>}</div>}
-      <section className="surface project-assistant"><span className="eyebrow">PROJECT-WIDE RETRIEVAL</span><h2><MessageSquareText size={17} /> Ask across this project</h2><p>Searches the latest uploaded version of each contract in this project and returns page-level citations.</p><form className="ask-form" onSubmit={askProject}><textarea rows="2" maxLength="12000" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="Ask a question across this project's agreements" /><button className="button primary" disabled={busy || !question.trim()}>{busy ? "Searching…" : "Ask project"}</button></form>{projectAnswer && <div className="assistant-result"><b>Answer</b><p>{projectAnswer.answer}</p>{projectAnswer.citations.map((citation) => <article className="citation" key={citation.chunk_id}><b>[S{citation.source_number}] {citation.document} · {citation.page ? `page ${citation.page}` : "page unavailable"}</b><p>{citation.excerpt}</p></article>)}</div>}</section>
-      <input id="version-upload" hidden type="file" accept=".pdf,.docx,.txt" onChange={(event) => upload(event.target.files, event.target.dataset.contractId)} />
+      </div> : <div className="empty-panel"><UploadCloud size={26} /><h3>{search || statusFilter !== "all" ? "No contracts match these filters" : "No contracts in this project yet"}</h3><p>{search || statusFilter !== "all" ? "Try changing the search or status filter." : "Upload PDF, Word, or text agreements to begin."}</p>{!search && statusFilter === "all" && <button className="button primary" onClick={() => fileInput.current?.click()}><Plus size={16} /> Add contracts</button>}</div>}
+      <div id="project-assistant" className="project-assistant-anchor"><AssistantChat projectId={projectId} setNotice={setNotice} /></div>
+      <input ref={versionInput} hidden type="file" accept=".pdf,.docx,.txt" onChange={(event) => upload(event.target.files, versionTarget.current)} />
     </div>
   );
 
   function uploadPicker(contractId) {
-    const input = document.getElementById("version-upload");
-    input.dataset.contractId = contractId;
-    input.click();
+    versionTarget.current = contractId;
+    versionInput.current?.click();
   }
 }

@@ -15,7 +15,7 @@ from app.api.v1 import contracts as contract_routes
 from app.api.v1 import projects as project_routes
 from app.core import security
 from app.core.config import settings
-from app.db.models import Base, Project, User
+from app.db.models import Base, Contract, Project, User
 from app.db.session import get_db
 from app.engines.analysis import analyze_contract
 from app.engines.comparison import compare_obligations, compare_texts
@@ -117,6 +117,7 @@ def client(tmp_path, monkeypatch):
     )
     with TestClient(app) as test_client:
         test_client.foreign_project_id = foreign_project_id
+        test_client.test_sessions = test_sessions
         yield test_client
     app.dependency_overrides.clear()
     app.state.rate_limit_disabled = False
@@ -323,11 +324,17 @@ def test_rag_answer_uses_cited_ollama_chat_response(monkeypatch):
         }
     ]
 
-    result = rag.answer("What is this contract about?", sources)
+    history = [
+        {"role": "user", "content": "What services are included?"},
+        {"role": "assistant", "content": "The provider configures a workspace. [S1]"},
+    ]
+    result = rag.answer("Who configures it?", sources, history=history)
 
     assert result == "This agreement covers professional services. [S1]"
     assert captured["url"].endswith("/api/chat")
     assert captured["json"]["messages"][0]["role"] == "system"
+    assert captured["json"]["messages"][1:3] == history
+    assert captured["json"]["messages"][-1]["content"].startswith("QUESTION:\nWho configures it?")
     assert captured["json"]["format"]["properties"]["source_ids"]["items"]["maximum"] == 1
 
 
@@ -475,6 +482,112 @@ def test_upload_validation_analysis_assistant_and_exports(client):
     assert translated.status_code == 201
     assert translated.json()["text"].startswith("es: ")
     assert client.get(f"/api/v1/versions/{version_id}/translations").json()[0]["target_language"] == "es"
+
+
+def test_persistent_assistant_conversations_support_followups_and_isolate_scope(client, monkeypatch):
+    project = client.post("/api/v1/projects", json={"name": "Primary project"}).json()
+    other_project = client.post("/api/v1/projects", json={"name": "Other project"}).json()
+    uploaded = client.post(
+        f"/api/v1/projects/{project['id']}/contracts",
+        files=[("files", ("terms.txt", b"Payment is due within 30 days.", "text/plain"))],
+    ).json()["results"][0]
+    contract_id = uploaded["contract_id"]
+    retrieved_queries = []
+    answer_histories = []
+    source = {
+        "chunk_id": "chunk-1",
+        "contract_id": contract_id,
+        "version_id": uploaded["version_id"],
+        "document_name": "terms.txt",
+        "page": 1,
+        "text": "Payment is due within 30 days.",
+        "score": 1.0,
+    }
+
+    def fake_retrieve(question, **_kwargs):
+        retrieved_queries.append(question)
+        return [source]
+
+    def fake_answer(question, sources, history=None):
+        answer_histories.append(history or [])
+        return f"Grounded answer to: {question} [S1]"
+
+    monkeypatch.setattr(assistant_routes, "retrieve", fake_retrieve)
+    monkeypatch.setattr(assistant_routes, "answer", fake_answer)
+    first = client.post(
+        f"/api/v1/contracts/{contract_id}/ask",
+        json={"question": "When is payment due?"},
+    )
+    assert first.status_code == 200
+    conversation_id = first.json()["conversation_id"]
+    followup = client.post(
+        f"/api/v1/contracts/{contract_id}/ask",
+        json={"question": "What is that period?", "conversation_id": conversation_id},
+    )
+    assert followup.status_code == 200
+    assert followup.json()["conversation_id"] == conversation_id
+    assert "When is payment due?" in retrieved_queries[1]
+    assert answer_histories[1] == [
+        {"role": "user", "content": "When is payment due?"},
+        {"role": "assistant", "content": "Grounded answer to: When is payment due? [S1]"},
+    ]
+
+    contract_threads = client.get(
+        f"/api/v1/projects/{project['id']}/conversations",
+        params={"contract_id": contract_id},
+    )
+    assert contract_threads.status_code == 200
+    assert len(contract_threads.json()) == 1
+    assert len(contract_threads.json()[0]["messages"]) == 4
+    assert contract_threads.json()[0]["messages"][-1]["citations"][0]["page"] == 1
+    assert client.get(f"/api/v1/projects/{project['id']}/conversations").json() == []
+    assert client.get(
+        f"/api/v1/projects/{other_project['id']}/conversations",
+        params={"contract_id": contract_id},
+    ).status_code == 404
+    assert client.get(
+        f"/api/v1/projects/{client.foreign_project_id}/conversations"
+    ).status_code == 404
+
+    renamed = client.patch(
+        f"/api/v1/projects/{project['id']}/conversations/{conversation_id}",
+        params={"contract_id": contract_id},
+        json={"title": "Payment terms"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "Payment terms"
+    assert client.delete(
+        f"/api/v1/projects/{other_project['id']}/conversations/{conversation_id}",
+        params={"contract_id": contract_id},
+    ).status_code == 404
+    assert client.delete(
+        f"/api/v1/projects/{project['id']}/conversations/{conversation_id}",
+        params={"contract_id": contract_id},
+    ).status_code == 200
+    assert client.get(
+        f"/api/v1/projects/{project['id']}/conversations",
+        params={"contract_id": contract_id},
+    ).json() == []
+
+
+def test_global_contract_catalog_is_searchable_and_owner_scoped(client):
+    project = client.post("/api/v1/projects", json={"name": "Owned supplier project"}).json()
+    uploaded = client.post(
+        f"/api/v1/projects/{project['id']}/contracts",
+        files=[("files", ("supplier-terms.txt", b"Payment is due in 14 days.", "text/plain"))],
+    ).json()["results"][0]
+    with client.test_sessions() as session:
+        session.add(
+            Contract(project_id=client.foreign_project_id, name="Private foreign contract")
+        )
+        session.commit()
+
+    catalog = client.get("/api/v1/contracts")
+    assert catalog.status_code == 200
+    assert [item["id"] for item in catalog.json()] == [uploaded["contract_id"]]
+    assert catalog.json()[0]["project_name"] == "Owned supplier project"
+    assert client.get("/api/v1/contracts?search=supplier").json()[0]["id"] == uploaded["contract_id"]
+    assert client.get("/api/v1/contracts?search=Private").json() == []
 
 
 def test_upload_new_version_and_compare(client):

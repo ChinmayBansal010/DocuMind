@@ -1,0 +1,16 @@
+.project-shortcut-nav{display:flex;flex-wrap:wrap;gap:8px;margin:-8px 0 25px;padding:0 0 13px;border-bottom:1px solid #e9edf3}
+.project-shortcut-nav a,.project-shortcut-nav button{display:inline-flex;align-items:center;gap:7px;padding:8px 10px;border:1px solid #e7ebf2;border-radius:8px;background:#fff;color:#5d6a80;font-size:9px;font-weight:650;text-decoration:none;cursor:pointer}
+.project-shortcut-nav a:hover,.project-shortcut-nav button:hover{border-color:#cdd7ec;background:#f8f9fd;color:#4b61b1}
+.project-shortcut-nav svg{color:#6075bd}
+.project-shortcut-nav b{display:grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:12px;background:#f0f2f8;color:#65728a;font-size:8px}
+.contract-status-filter{display:flex;flex-direction:column;gap:3px;color:#8a95a5;font-size:8px}
+.contract-status-filter select{height:40px;padding:0 9px;border:1px solid #e0e5ee;border-radius:8px;background:#fff;color:#56647b;font-size:10px}
+.contract-row-actions{position:relative;display:flex;justify-content:center}
+.contract-action-menu{position:absolute;z-index:4;right:0;top:calc(100% + 4px);width:170px;padding:5px;border:1px solid #e4e8ef;border-radius:8px;background:#fff;box-shadow:0 8px 24px #26334b1b}
+.contract-action-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:9px 8px;border:0;border-radius:6px;background:#fff;color:#56647a;text-align:left;font-size:9px;cursor:pointer}
+.contract-action-menu button:hover{background:#f5f7fb}
+.contract-action-menu button:last-child{color:#a64e4a}
+.contract-action-menu button:disabled{opacity:.5;cursor:not-allowed}
+.contract-table.has-open-menu{position:relative;z-index:1;overflow:visible}
+.project-assistant-anchor{scroll-margin-top:20px}
+@media(max-width:720px){.project-shortcut-nav{margin-top:-2px}.project-shortcut-nav a,.project-shortcut-nav button{flex:1;justify-content:center}.contract-status-filter{flex:1}.contract-status-filter select{width:100%}}

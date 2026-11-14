@@ -2,8 +2,8 @@ import logging
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import delete, func, select
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
@@ -84,6 +84,43 @@ def _contract_dict(contract: Contract, include_text: bool = False) -> dict:
         result["layout_data"] = version.layout_data
         result["language_insights"] = version.language_insights
         result["safety_findings"] = version.safety_findings
+    return result
+
+
+@router.get("/contracts")
+def list_user_contracts(
+    search: str = Query(default="", max_length=200),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    statement = (
+        select(Contract, Project.name)
+        .join(Project, Project.id == Contract.project_id)
+        .options(selectinload(Contract.versions))
+        .where(Project.owner_id == user.id)
+        .order_by(Contract.updated_at.desc())
+    )
+    if search.strip():
+        term = f"%{search.strip()}%"
+        statement = statement.where(
+            or_(Contract.name.ilike(term), Project.name.ilike(term))
+        )
+    result = []
+    for contract, project_name in db.execute(statement):
+        version = _latest(contract)
+        result.append(
+            {
+                "id": contract.id,
+                "project_id": contract.project_id,
+                "project_name": project_name,
+                "name": contract.name,
+                "status": contract.status,
+                "version_count": len(contract.versions),
+                "file_type": version.file_type if version else None,
+                "page_count": version.page_count if version else None,
+                "updated_at": contract.updated_at.isoformat(),
+            }
+        )
     return result
 
 

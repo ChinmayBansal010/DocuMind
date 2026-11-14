@@ -1,0 +1,3 @@
+.workspace-nav{display:grid;gap:4px}
+.workspace-nav .side-link{cursor:pointer}
+@media(max-width:720px){.workspace-nav .side-link{min-height:40px}}

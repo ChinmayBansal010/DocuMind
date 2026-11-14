@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -15,7 +15,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.engines.rag import answer, retrieve
 from app.repositories.access import owned_contract, owned_project
-from app.schemas.api import ContractQuestion, ProjectQuestion
+from app.schemas.api import ContractQuestion, ConversationRename, ProjectQuestion
 from app.services.azure_ai import analyze_content_safety, shield_prompt
 from app.utils.audit import record
 
@@ -49,6 +49,26 @@ def _ask(
         db.add(conversation)
         db.flush()
 
+    prior_messages = db.scalars(
+        select(Message)
+        .where(Message.conversation_id == conversation.id)
+        .order_by(Message.created_at.desc())
+        .limit(6)
+    ).all()
+    history = [
+        {"role": message.role, "content": message.content}
+        for message in reversed(prior_messages)
+    ]
+    previous_question = next(
+        (message["content"] for message in reversed(history) if message["role"] == "user"),
+        None,
+    )
+    retrieval_query = (
+        f"{previous_question}\n{payload.question.strip()}"
+        if previous_question
+        else payload.question.strip()
+    )
+
     latest = (
         select(
             ContractVersion.contract_id.label("contract_id"),
@@ -76,7 +96,7 @@ def _ask(
         blocked_reason = "Azure Content Safety flagged the question; no contract answer was generated."
     else:
         sources = retrieve(
-            payload.question.strip(),
+            retrieval_query,
             owner_id=owner_id,
             project_id=project_id,
             latest_version_ids=latest_version_ids,
@@ -104,7 +124,11 @@ def _ask(
                 for index, source in enumerate(sources)
                 if index not in flagged_indices
             ]
-    result = blocked_reason or answer(payload.question.strip(), sources)
+    result = (
+        blocked_reason
+        if blocked_reason
+        else answer(payload.question.strip(), sources, history=history)
+    )
     citations = [
         {
             "source_number": index,
@@ -194,32 +218,128 @@ def ask_contract(
 @router.get("/projects/{project_id}/conversations")
 def list_conversations(
     project_id: str,
+    contract_id: str | None = Query(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     owned_project(db, user.id, project_id)
+    scope_filter = Conversation.contract_id.is_(None)
+    if contract_id is not None:
+        contract = owned_contract(db, user.id, contract_id)
+        if contract.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        scope_filter = Conversation.contract_id == contract_id
+    latest_message = (
+        select(
+            Message.conversation_id.label("conversation_id"),
+            func.max(Message.created_at).label("last_activity"),
+        )
+        .group_by(Message.conversation_id)
+        .subquery()
+    )
     conversations = db.scalars(
         select(Conversation)
         .options(joinedload(Conversation.messages))
-        .where(Conversation.project_id == project_id)
-        .order_by(Conversation.created_at.desc())
+        .outerjoin(latest_message, latest_message.c.conversation_id == Conversation.id)
+        .where(Conversation.project_id == project_id, scope_filter)
+        .order_by(
+            func.coalesce(latest_message.c.last_activity, Conversation.created_at).desc()
+        )
     ).unique().all()
-    return [
-        {
-            "id": item.id,
-            "contract_id": item.contract_id,
-            "title": item.title,
-            "created_at": item.created_at.isoformat(),
-            "messages": [
-                {
-                    "id": message.id,
-                    "role": message.role,
-                    "content": message.content,
-                    "citations": message.citations,
-                    "created_at": message.created_at.isoformat(),
-                }
-                for message in item.messages
-            ],
-        }
-        for item in conversations
-    ]
+    return [_conversation_dict(item) for item in conversations]
+
+
+def _conversation_dict(item: Conversation) -> dict:
+    return {
+        "id": item.id,
+        "contract_id": item.contract_id,
+        "title": item.title,
+        "created_at": item.created_at.isoformat(),
+        "messages": [
+            {
+                "id": message.id,
+                "role": message.role,
+                "content": message.content,
+                "citations": message.citations,
+                "created_at": message.created_at.isoformat(),
+            }
+            for message in item.messages
+        ],
+    }
+
+
+def _owned_conversation(
+    db: Session,
+    user_id: str,
+    project_id: str,
+    conversation_id: str,
+    contract_id: str | None,
+) -> Conversation:
+    owned_project(db, user_id, project_id)
+    if contract_id is None:
+        scope_filter = Conversation.contract_id.is_(None)
+    else:
+        contract = owned_contract(db, user_id, contract_id)
+        if contract.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Conversation not found.")
+        scope_filter = Conversation.contract_id == contract_id
+    conversation = db.scalar(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.project_id == project_id,
+            scope_filter,
+        )
+    )
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return conversation
+
+
+@router.patch("/projects/{project_id}/conversations/{conversation_id}")
+def rename_conversation(
+    project_id: str,
+    conversation_id: str,
+    payload: ConversationRename,
+    contract_id: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    conversation = _owned_conversation(
+        db, user.id, project_id, conversation_id, contract_id
+    )
+    conversation.title = payload.title.strip()
+    if not conversation.title:
+        raise HTTPException(status_code=422, detail="Conversation title cannot be empty.")
+    record(
+        db,
+        user.id,
+        "assistant.conversation.renamed",
+        project_id=project_id,
+        target_id=conversation.id,
+    )
+    db.commit()
+    db.refresh(conversation)
+    return _conversation_dict(conversation)
+
+
+@router.delete("/projects/{project_id}/conversations/{conversation_id}")
+def delete_conversation(
+    project_id: str,
+    conversation_id: str,
+    contract_id: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    conversation = _owned_conversation(
+        db, user.id, project_id, conversation_id, contract_id
+    )
+    record(
+        db,
+        user.id,
+        "assistant.conversation.deleted",
+        project_id=project_id,
+        target_id=conversation.id,
+    )
+    db.delete(conversation)
+    db.commit()
+    return {"deleted": conversation_id}

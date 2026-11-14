@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft, ArrowDownToLine, CalendarDays, Check, ChevronDown, FileText,
-  Languages, MessageSquareText, Pencil, RefreshCw, ShieldAlert, Sparkles, Trash2,
+  Languages, Pencil, RefreshCw, ShieldAlert, Sparkles, Trash2,
 } from "lucide-react";
 import { api, download } from "../../services/api";
+import AssistantChat from "../assistant/AssistantChat";
 import ContractOverview from "./ContractOverview";
 
 const TABS = [
@@ -24,9 +25,6 @@ export default function ContractWorkspace({ contractId, onBack, setNotice }) {
   const [analysisHistory, setAnalysisHistory] = useState([]);
   const [tab, setTab] = useState("overview");
   const [busy, setBusy] = useState(false);
-  const [question, setQuestion] = useState("");
-  const [conversationId, setConversationId] = useState(null);
-  const [answer, setAnswer] = useState(null);
   const [versions, setVersions] = useState([]);
   const [compareFrom, setCompareFrom] = useState("");
   const [compareTo, setCompareTo] = useState("");
@@ -59,7 +57,7 @@ export default function ContractWorkspace({ contractId, onBack, setNotice }) {
       setNotice(error.message);
     }
   }, [contractId, setNotice]);
-  useEffect(() => { setTab("overview"); setAnswer(null); setComparison(null); setTranslation(null); load(); }, [contractId, load]);
+  useEffect(() => { setTab("overview"); setComparison(null); setTranslation(null); load(); }, [contractId, load]);
 
   const analyze = async () => {
     setBusy(true);
@@ -89,23 +87,6 @@ export default function ContractWorkspace({ contractId, onBack, setNotice }) {
       await api(`/contracts/${contractId}`, { method: "DELETE" });
       onBack();
     } catch (error) { setNotice(error.message); }
-  };
-
-  const ask = async (event) => {
-    event.preventDefault();
-    if (!question.trim()) return;
-    setBusy(true);
-    setAnswer(null);
-    try {
-      const result = await api(`/contracts/${contractId}/ask`, {
-        method: "POST",
-        body: JSON.stringify({ question: question.trim(), conversation_id: conversationId }),
-      });
-      setConversationId(result.conversation_id);
-      setAnswer(result);
-      setQuestion("");
-    } catch (error) { setNotice(error.message); }
-    finally { setBusy(false); }
   };
 
   const compare = async () => {
@@ -184,7 +165,7 @@ export default function ContractWorkspace({ contractId, onBack, setNotice }) {
       {tab === "risks" && <section className="surface"><SectionTitle icon={<ShieldAlert size={17} />} title="Risk review" count={risks.length} /><div className="risk-score"><span>Rule transparency</span><b>{analysis?.risk_score ?? "—"}<small>/100</small></b><p>{analysis?.risk_methodology || "No analysis yet. Findings are not legal advice."}</p></div><EvidenceList items={risks} type="risk" empty="No source-verified risks were returned. This is not a guarantee of no risk." /></section>}
       {tab === "obligations" && <section className="surface"><SectionTitle icon={<Check size={17} />} title="Obligations" count={obligations.length} /><EvidenceList items={obligations} type="obligation" empty="No source-verified obligations were extracted." /></section>}
       {tab === "timeline" && <Timeline items={obligations} />}
-      {tab === "assistant" && <section className="surface assistant-surface"><span className="eyebrow">CONTRACT-ONLY RETRIEVAL</span><h2>Ask about this agreement</h2><p>Responses use Azure AI Search hybrid retrieval, are checked by Azure Content Safety, and include page citations. If relevant evidence is missing, the assistant will say so.</p><form className="ask-form" onSubmit={ask}><textarea rows="3" maxLength="10000" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="e.g. What notice is required to terminate?" /><button className="button primary" disabled={busy || !question.trim()}><MessageSquareText size={16} />{busy ? "Searching…" : "Ask contract"}</button></form>{answer && <div className="assistant-result"><b>Answer</b><p>{answer.answer}</p>      <div className="citation-list">{answer.citations.map((citation, index) => <article className="citation" key={citation.chunk_id}><b>[S{citation.source_number || index + 1}] {citation.document} · {citation.page ? `page ${citation.page}` : "page unavailable"}</b><p>{citation.excerpt}</p></article>)}</div></div>}</section>}
+      {tab === "assistant" && <AssistantChat projectId={contract.project_id} contractId={contractId} setNotice={setNotice} />}
       {tab === "versions" && <section className="surface"><SectionTitle icon={<RefreshCw size={17} />} title="Version history" count={versions.length} /><div className="version-list">{versions.map((version) => <div className="version-card" key={version.id}><div className="version-badge">V{version.version_number}</div><div><b>{version.filename}</b><small>{version.file_type.toUpperCase()} · {version.page_count ? `${version.page_count} pages` : "page count unavailable"} · {new Date(version.created_at).toLocaleString()}</small></div><button className="button text-button" onClick={() => { setCompareFrom(version.id); setTab("versions"); }}>Select earlier version</button></div>)}</div>{versions.length > 1 && <div className="compare-controls"><label>Earlier<select value={compareFrom} onChange={(event) => setCompareFrom(event.target.value)}>{versions.map((v) => <option value={v.id} key={v.id}>Version {v.version_number}</option>)}</select></label><ChevronDown size={16} /><label>Later<select value={compareTo} onChange={(event) => setCompareTo(event.target.value)}>{versions.map((v) => <option value={v.id} key={v.id}>Version {v.version_number}</option>)}</select></label><button className="button primary" onClick={compare} disabled={busy}>{busy ? "Comparing…" : "Compare versions"}</button></div>}{comparison && <Comparison result={comparison} />}{versions.length < 2 && <p className="subtle-copy">Upload a new version to compare changes.</p>}<h3 className="history-heading">Analysis history</h3>{analysisHistory.length ? <div className="version-list">{analysisHistory.map((item) => <article className="version-card" key={item.id}><div className="version-badge"><Sparkles size={14} /></div><div><b>Version {versions.find((version) => version.id === item.version_id)?.version_number || "—"} · {item.model}</b><small>{new Date(item.created_at).toLocaleString()} · Risk score {item.analysis.risk_score ?? "not scored"}</small></div></article>)}</div> : <p className="subtle-copy">No saved analyses yet.</p>}</section>}
       {tab === "translation" && <section className="surface"><span className="eyebrow">AZURE TRANSLATOR · F0 TEXT API</span><h2>Translate contract content</h2><p className="subtle-copy">Translate the extracted text or saved executive summary. The source contract and its analysis remain unchanged.</p><aside className="translator-explainer"><b>How translation is used</b><p>Translation runs only when you request it. DocuMind sends the extracted contract text or the latest saved executive summary to Azure AI Translator; source language detection is automatic.</p><p>The result is saved separately and does not replace the original document, analysis, or search index. This text API does not preserve PDF/DOCX page layout or translate the original file.</p></aside><form className="settings-form" onSubmit={translate}><label>Content<select value={translationScope} onChange={(event) => setTranslationScope(event.target.value)}><option value="contract">Full extracted contract</option><option value="summary" disabled={!analysis}>Executive summary</option></select></label><label>Translate to<select value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)}>{TARGET_LANGUAGES.map(([code, label]) => <option value={code} key={code}>{label}</option>)}</select></label><button className="button primary" disabled={busy || !versions.length || (translationScope === "summary" && !analysis)}><Languages size={16} />{busy ? "Translating…" : "Translate text"}</button></form>{translation && <article className="assistant-result"><b>{translation.source_language} → {translation.target_language} · {translation.scope}</b><pre className="translation-text">{translation.text}</pre></article>}{translationHistory.length > 0 && <><h3 className="history-heading">Saved translations</h3><div className="version-list">{translationHistory.map((item) => <button className="version-card translation-history-item" key={item.id} onClick={() => setTranslation(item)}><div className="version-badge"><Languages size={14} /></div><div><b>{item.source_language} → {item.target_language} · {item.scope}</b><small>{new Date(item.created_at).toLocaleString()}</small></div></button>)}</div></>}</section>}
       {tab === "reports" && <section className="surface"><span className="eyebrow">EXPORT</span><h2>Download a review report</h2><p className="subtle-copy">Exports include the saved analysis, its source excerpts and page references. Generate an analysis first.</p><div className="export-grid">{["pdf", "md", "json"].map((format) => <button key={format} className="export-card" onClick={() => exportReport(format)} disabled={!analysis}><span><ArrowDownToLine size={17} /></span><b>{format.toUpperCase()} report</b><small>{format === "pdf" ? "Printable document" : format === "md" ? "Markdown text" : "Structured data"}</small></button>)}</div></section>}

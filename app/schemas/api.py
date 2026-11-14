@@ -35,6 +35,10 @@ class ProjectQuestion(ContractQuestion):
     pass
 
 
+class ConversationRename(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
 class TranslateRequest(BaseModel):
     target_language: str = Field(pattern=r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$")
     source_language: str | None = Field(default=None, pattern=r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$")

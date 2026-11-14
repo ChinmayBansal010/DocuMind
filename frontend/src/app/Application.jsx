@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
-import { FileCheck2, FolderKanban, LogOut, Settings2 } from "lucide-react";
+import {
+  FileCheck2, FileText, FolderKanban, LogOut, MessageSquareText, Settings2,
+} from "lucide-react";
 import AuthScreen from "../features/auth/AuthScreen";
+import AssistantHub from "../features/assistant/AssistantHub";
+import ContractsHub from "../features/contracts/ContractsHub";
 import Dashboard from "../features/dashboard/Dashboard";
 import ProjectWorkspace from "../features/projects/ProjectWorkspace";
 import ContractWorkspace from "../features/contracts/ContractWorkspace";
 import SettingsPage from "../features/settings/SettingsPage";
 import { authClient } from "../services/auth";
 import { api } from "../services/api";
+import "./WorkspaceNavigation.css";
 
 export default function Application() {
   const [user, setUser] = useState(undefined);
@@ -14,6 +19,7 @@ export default function Application() {
   const [page, setPage] = useState("projects");
   const [projectId, setProjectId] = useState(null);
   const [contractId, setContractId] = useState(null);
+  const [contractReturnPage, setContractReturnPage] = useState("project");
   const [notice, setNotice] = useState("");
 
   const refreshSession = async () => {
@@ -53,7 +59,14 @@ export default function Application() {
   const openProject = (id) => {
     setProjectId(id);
     setContractId(null);
+    setContractReturnPage("project");
     setPage("project");
+  };
+  const openContractFromCatalog = (nextProjectId, nextContractId) => {
+    setProjectId(nextProjectId);
+    setContractId(nextContractId);
+    setContractReturnPage("contracts");
+    setPage("contract");
   };
   const signOut = async () => {
     try {
@@ -63,6 +76,7 @@ export default function Application() {
       setProfile(null);
       setProjectId(null);
       setContractId(null);
+      setContractReturnPage("project");
       setPage("projects");
     } catch (error) { setNotice(error.message); }
   };
@@ -74,7 +88,11 @@ export default function Application() {
     <aside className="sidebar">
       <button className="brand" onClick={() => { setPage("projects"); setProjectId(null); setContractId(null); }}><span className="brand-mark"><FileCheck2 size={19} /></span><span>DocuMind<small>CONTRACT WORKSPACE</small></span></button>
       <span className="nav-caption">WORKSPACE</span>
-      <button className={`side-link ${["projects", "project", "contract"].includes(page) ? "active" : ""}`} onClick={() => { setPage("projects"); setProjectId(null); setContractId(null); }}><FolderKanban size={17} /> Projects</button>
+      <nav className="workspace-nav" aria-label="Workspace">
+        <button className={`side-link ${["projects", "project"].includes(page) || (page === "contract" && contractReturnPage === "project") ? "active" : ""}`} onClick={() => { setPage("projects"); setProjectId(null); setContractId(null); }}><FolderKanban size={17} /> Projects</button>
+        <button className={`side-link ${page === "contracts" || (page === "contract" && contractReturnPage === "contracts") ? "active" : ""}`} onClick={() => { setPage("contracts"); setContractId(null); }}><FileText size={17} /> Contracts</button>
+        <button className={`side-link ${page === "assistant" ? "active" : ""}`} onClick={() => { setPage("assistant"); setContractId(null); }}><MessageSquareText size={17} /> Assistant</button>
+      </nav>
       <div className="sidebar-bottom">
         <button className={`side-link ${page === "settings" ? "active" : ""}`} onClick={() => { setPage("settings"); setContractId(null); }}><Settings2 size={17} /> Settings</button>
         <div className="user-chip"><span className="avatar">{(profile?.name || profile?.email || "U").slice(0, 1).toUpperCase()}</span><div><b>{profile?.name || profile?.email || "User"}</b><small>{profile?.email || ""}</small></div><button title="Sign out" aria-label="Sign out" onClick={signOut}><LogOut size={15} /></button></div>
@@ -82,8 +100,10 @@ export default function Application() {
     </aside>
     <main className="main-area">
       {page === "projects" && <Dashboard onOpenProject={openProject} notice={notice} setNotice={setNotice} />}
-      {page === "project" && projectId && <ProjectWorkspace projectId={projectId} onBack={() => { setPage("projects"); setProjectId(null); }} onOpenContract={(id) => { setContractId(id); setPage("contract"); }} setNotice={setNotice} />}
-      {page === "contract" && contractId && <ContractWorkspace contractId={contractId} onBack={() => setPage("project")} setNotice={setNotice} />}
+      {page === "project" && projectId && <ProjectWorkspace projectId={projectId} onBack={() => { setPage("projects"); setProjectId(null); }} onOpenContract={(id) => { setContractId(id); setContractReturnPage("project"); setPage("contract"); }} setNotice={setNotice} />}
+      {page === "contracts" && <ContractsHub onOpenContract={openContractFromCatalog} onBrowseProjects={() => { setPage("projects"); setProjectId(null); }} setNotice={setNotice} />}
+      {page === "assistant" && <AssistantHub onBrowseProjects={() => { setPage("projects"); setProjectId(null); }} setNotice={setNotice} />}
+      {page === "contract" && contractId && <ContractWorkspace contractId={contractId} onBack={() => setPage(contractReturnPage)} setNotice={setNotice} />}
       {page === "settings" && <SettingsPage profile={profile} onProfile={setProfile} onSignOut={signOut} setNotice={setNotice} />}
       {notice && <div className="global-toast" role="status">{notice}<button onClick={() => setNotice("")}>Dismiss</button></div>}
     </main>
