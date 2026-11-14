@@ -106,10 +106,15 @@ def detect_prompt_injection(user_prompt, documents=None):
     documents = documents or []
     if settings.content_safety_endpoint and settings.content_safety_key:
         try:
-            payload = {"userPrompt": (user_prompt or "")[:10000], "documents": [
-                {"id": str(index), "text": (document or "")[:10000]}
-                for index, document in enumerate(documents[:5])
-            ]}
+            remaining = 9000
+            shield_documents = []
+            for index, document in enumerate(documents[:5]):
+                excerpt = (document or "")[:remaining]
+                if not excerpt:
+                    break
+                shield_documents.append({"id": str(index), "text": excerpt})
+                remaining -= len(excerpt)
+            payload = {"userPrompt": (user_prompt or "")[:10000], "documents": shield_documents}
             response = requests.post(
                 settings.content_safety_endpoint + "/contentsafety/text:shieldPrompt",
                 params={"api-version": "2024-09-01"},
