@@ -287,10 +287,10 @@ The health response shows which integrations have credentials configured. It doe
 - Uploaded files, extracted text, metadata and contract reports are stored in the local Docker volume.
 - Azure AI Search receives extracted chunks when indexing is enabled.
 - Azure Document Intelligence receives the original selected file only when layout extraction is explicitly run.
-- Azure AI Content Safety receives questions and generated answers for moderation; Prompt Shields receives the prompt and retrieved passages before model generation.
+- Azure AI Content Safety receives user questions, generated answers and generated contract reports for moderation; Prompt Shields receives user prompts, retrieved passages and the first 10,000 characters of a contract during contract analysis.
 - Azure AI Language receives document text when the user explicitly runs document insights.
 - Azure AI Translator receives only the text submitted for translation.
-- Ollama receives the question and retrieved passages for local generation. If Ollama runs on the host, model inference remains on that host; if Ollama runs in Docker, it runs in the Ollama container.
+- Ollama receives the full extracted contract text (up to 40,000 characters) during contract analysis, and questions plus retrieved passages during Q&A. If Ollama runs on the host, inference remains on that host; if Ollama runs in Docker, it runs in the Ollama container.
 
 Review [PRIVACY.md](PRIVACY.md), [TERMS.md](TERMS.md) and [SECURITY.md](SECURITY.md). This release is single-user and has no login or multi-user isolation. Do not expose it as a public hosted service. Local files and SQLite data are not encrypted by DocuMind.
 
