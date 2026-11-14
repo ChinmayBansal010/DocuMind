@@ -15,10 +15,12 @@ from documind.azure_services import analyze_with_document_intelligence, moderate
 from documind.azure_search import is_configured as search_configured, upload_chunks, search_chunks as azure_search_chunks
 from documind.config import settings
 from documind.extraction import extract_fields_locally
+from documind.contract_analysis import analyze_contract, get_saved_analysis, initialize_contract_storage, save_analysis
 
 app = FastAPI(title="DocuMind", version="2.1.0", docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_credentials=False, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
 initialize_db()
+initialize_contract_storage()
 
 @app.middleware("http")
 async def security_headers(request, call_next):
@@ -34,6 +36,9 @@ class QuestionRequest(BaseModel):
     question: str = Field(min_length=1, max_length=12000)
     documents: list[str] = []
     top: int = Field(default=5, ge=1, le=10)
+
+class ContractQuestionRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=12000)
 
 class ExtractionRequest(BaseModel):
     document_id: int
@@ -102,6 +107,56 @@ async def upload_documents(files: list[UploadFile] = File(...)):
                 saved_path.unlink(missing_ok=True)
             results.append({"name": name, "status": "error", "message": str(exc)})
     return {"results": results, "documents": [public_document(d) for d in list_documents()]}
+
+@app.get("/api/contracts")
+def contracts():
+    items = []
+    for doc in list_documents():
+        saved = get_saved_analysis(doc["id"])
+        items.append({
+            "id": doc["id"], "name": doc["name"], "file_type": doc["file_type"],
+            "pages": doc["pages"], "created_at": doc["created_at"],
+            "analyzed": saved is not None,
+            "contract_type": saved["analysis"].get("contract_type") if saved else None,
+            "risk_count": len(saved["analysis"].get("risks", [])) if saved else 0
+        })
+    return items
+
+@app.post("/api/contracts/{document_id}/analyze")
+def analyze_contract_document(document_id: int):
+    doc = next((item for item in list_documents() if item["id"] == document_id), None)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    analysis, model = analyze_contract(doc["text"])
+    save_analysis(document_id, analysis, model)
+    record_event("contract_analysis", doc["name"], f"Analysis generated using {model}")
+    return {"document": public_document(doc), "analysis": analysis, "model": model}
+
+@app.get("/api/contracts/{document_id}/analysis")
+def contract_analysis_result(document_id: int):
+    doc = next((item for item in list_documents() if item["id"] == document_id), None)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    saved = get_saved_analysis(document_id)
+    if not saved:
+        raise HTTPException(status_code=404, detail="This document has not been analysed as a contract yet.")
+    return {"document": public_document(doc), **saved}
+
+@app.post("/api/contracts/{document_id}/ask")
+def ask_contract(document_id: int, payload: ContractQuestionRequest):
+    doc = next((item for item in list_documents() if item["id"] == document_id), None)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(status_code=422, detail="Enter a question.")
+    safety = moderate_text(question)
+    if safety.get("blocked"):
+        raise HTTPException(status_code=400, detail="The content safety check flagged this query.")
+    hits = search_chunks(question, [doc["name"]], 5)
+    answer = answer_question(question, hits)
+    record_event("contract_query", doc["name"], question[:240])
+    return {"answer": answer, "sources": hits, "document": doc["name"], "answer_model": settings.ollama_model or "Extractive"}
 
 @app.delete("/api/documents/{document_id}")
 def remove_document(document_id: int):
