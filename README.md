@@ -20,7 +20,7 @@ DocuMind is a Dockerized document workspace. It combines local document storage 
 - Search across the library or a selected document.
 - Ask natural-language questions and inspect source passages.
 - Delete documents and remove their corresponding chunks from Azure AI Search when cloud indexing is enabled.
-- Use Azure AI Language to detect language, extract key phrases and identify possible PII.
+- Use Azure AI Language to detect language, extract key phrases and identify possible PII from the first 5,000 characters of a selected document.
 - Use Azure AI Translator to translate selected clauses and passages.
 - Use Azure Document Intelligence to extract layout text and tables from supported documents.
 
@@ -135,7 +135,14 @@ The named volumes are retained. To delete all local application data and model d
 
 ### Option A: Ollama installed on the Fedora host
 
-Install Ollama using the official Linux instructions, then download the model:
+Install Ollama on Fedora using the official installer, then download the model:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+sudo systemctl enable --now ollama
+```
+
+Then download the model:
 
 ```bash
 ollama pull llama3.1:8b
