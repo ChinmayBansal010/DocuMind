@@ -64,11 +64,11 @@ def get_saved_analysis(document_id):
 def _page_for(text, excerpt):
     if not excerpt:
         return 1
-    match = re.search(r"\\[Page (\\d+)\\]", text[:max(text.find(excerpt), 0) + 1]) if excerpt in text else None
+    match = re.search(r"\[Page (\d+)\]", text[:max(text.find(excerpt), 0) + 1]) if excerpt in text else None
     if match:
         return int(match.group(1))
     before = text[:text.find(excerpt)] if excerpt in text else ""
-    pages = re.findall(r"\\[Page (\\d+)\\]", before)
+    pages = re.findall(r"\[Page (\d+)\]", before)
     return int(pages[-1]) if pages else 1
 
 
@@ -77,7 +77,7 @@ def _fallback_analysis(text):
     clauses = []
     patterns = {
         "Termination": r"termination|terminate|notice period",
-        "Payment": r"payment|invoice|late fee|within \\d+ days",
+        "Payment": r"payment|invoice|late fee|within \d+ days",
         "Confidentiality": r"confidential|non-disclosure",
         "Indemnification": r"indemnif",
         "Limitation of Liability": r"limitation of liability|liability shall not exceed|liable for",
@@ -94,15 +94,15 @@ def _fallback_analysis(text):
     for category, pattern in patterns.items():
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            start = max(0, text.rfind("\\n", 0, match.start()))
-            end = min(len(text), text.find("\\n", match.end()) if text.find("\\n", match.end()) >= 0 else match.end() + 350)
+            start = max(0, text.rfind("\n", 0, match.start()))
+            end = min(len(text), text.find("\n", match.end()) if text.find("\n", match.end()) >= 0 else match.end() + 350)
             excerpt = text[start:end].strip()[:700]
             clauses.append({"category": category, "status": "Identified", "risk_level": "Unassessed", "summary": "A matching clause or reference was found. Detailed interpretation requires AI analysis.", "excerpt": excerpt, "page": _page_for(text, excerpt)})
     risks = []
     risk_patterns = [
         ("Unlimited liability wording", r"unlimited liability|without limitation", "High"),
         ("Automatic renewal", r"automatically renew|automatic renewal", "Medium"),
-        ("Short termination notice", r"\\b(5|7|10) days?['’]? notice", "Medium")
+        ("Short termination notice", r"\b(5|7|10) days?['’]? notice", "Medium")
     ]
     for title, pattern, severity in risk_patterns:
         match = re.search(pattern, lower)
@@ -128,7 +128,7 @@ def analyze_contract(document_text):
         "Page numbers must come from explicit [Page N] markers; use 1 only when no marker exists. "
         "A missing clause is a review observation, not proof of legal invalidity. Risk levels must be Critical, High, Medium, Low or Informational. "
         "Separate facts from interpretation. Keep recommendations cautious and non-legal-advice. "
-        "CONTRACT TEXT:\\n" + document_text[:40000]
+        "CONTRACT TEXT:\n" + document_text[:40000]
     )
     try:
         response = requests.post(
