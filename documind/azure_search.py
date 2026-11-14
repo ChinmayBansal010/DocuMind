@@ -62,3 +62,28 @@ def search_chunks(query, document_names=None, top=5):
     response = requests.post(url, params={"api-version": settings.search_api_version}, headers=_headers(), json=body, timeout=30)
     response.raise_for_status()
     return [{"document_name": item["document_name"], "chunk_index": item["chunk_index"], "text": item["content"], "score": float(item.get("@search.score", 0))} for item in response.json().get("value", [])]
+
+def delete_document_chunks(document_sha256):
+    if not is_configured():
+        return {"deleted": 0, "configured": False}
+    url = f"{settings.search_endpoint}/indexes/{settings.search_index}/docs"
+    headers = _headers()
+    response = requests.post(
+        url,
+        params={"api-version": settings.search_api_version},
+        headers=headers,
+        json={"search": "*", "filter": f"document_sha256 eq '{document_sha256}'", "select": "id", "top": 1000},
+        timeout=30
+    )
+    response.raise_for_status()
+    keys = [{"@search.action": "delete", "id": item["id"]} for item in response.json().get("value", [])]
+    if keys:
+        result = requests.post(
+            f"{settings.search_endpoint}/indexes/{settings.search_index}/docs/index",
+            params={"api-version": settings.search_api_version},
+            headers=headers,
+            json={"value": keys},
+            timeout=30
+        )
+        result.raise_for_status()
+    return {"deleted": len(keys), "configured": True}
