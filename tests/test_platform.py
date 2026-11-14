@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 
 import jwt
@@ -148,6 +149,32 @@ def test_jwks_token_validation_requires_valid_issuer_and_expiry(monkeypatch):
         algorithm="EdDSA",
     )
     assert security.decode_access_token(token)["sub"] == "user-1"
+    slightly_early_token = jwt.encode(
+        {
+            "sub": "user-1",
+            "iss": auth_origin,
+            "aud": auth_origin,
+            "nbf": int(time.time()) + 30,
+            "exp": int(time.time()) + 3600,
+        },
+        private_key,
+        algorithm="EdDSA",
+    )
+    assert security.decode_access_token(slightly_early_token)["sub"] == "user-1"
+    too_early_token = jwt.encode(
+        {
+            "sub": "user-1",
+            "iss": auth_origin,
+            "aud": auth_origin,
+            "nbf": int(time.time()) + 120,
+            "exp": int(time.time()) + 3600,
+        },
+        private_key,
+        algorithm="EdDSA",
+    )
+    with pytest.raises(HTTPException) as immature_error:
+        security.decode_access_token(too_early_token)
+    assert immature_error.value.status_code == 401
     wrong_issuer = jwt.encode(
         {
             "sub": "user-1",

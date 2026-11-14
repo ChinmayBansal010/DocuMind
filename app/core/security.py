@@ -45,6 +45,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
             algorithms=["EdDSA"],
             issuer=auth_origin,
             audience=auth_origin,
+            leeway=60,
             options={"require": ["exp", "iss", "sub", "aud"]},
         )
     except (jwt.PyJWTError, ValueError, RuntimeError) as exc:

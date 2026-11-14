@@ -15,7 +15,7 @@ export default function AssistantHub({ onBrowseProjects, setNotice }) {
       .then((result) => {
         if (!active) return;
         setProjects(result);
-        setProjectId(result[0]?.id || "");
+        setProjectId(result.find((project) => project.contract_count > 0)?.id || result[0]?.id || "");
       })
       .catch((error) => {
         if (active) setNotice(error.message);
@@ -55,7 +55,15 @@ export default function AssistantHub({ onBrowseProjects, setNotice }) {
       {selectedProject ? (
         <div className="assistant-hub-panel" key={selectedProject.id}>
           <div className="assistant-hub-scope"><FolderKanban size={15} /><span>Current scope: <b>{selectedProject.name}</b></span><small>{selectedProject.contract_count} contract{selectedProject.contract_count === 1 ? "" : "s"}</small></div>
-          <AssistantChat key={selectedProject.id} projectId={selectedProject.id} setNotice={setNotice} />
+          {selectedProject.contract_count > 0
+            ? <AssistantChat key={selectedProject.id} projectId={selectedProject.id} setNotice={setNotice} />
+            : (
+              <div className="empty-panel assistant-hub-empty">
+                <MessageSquareText size={25} />
+                <h3>No contracts in this project yet</h3>
+                <p>Upload contracts to this project, or choose a project that already contains contracts to ask evidence-based questions.</p>
+              </div>
+            )}
         </div>
       ) : null}
     </div>
