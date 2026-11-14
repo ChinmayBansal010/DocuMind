@@ -11,7 +11,7 @@ from documind.database import initialize_db, add_document, record_event, get_sta
 from documind.documents import extract_document, split_text, SUPPORTED
 from documind.storage import save_upload, list_documents, delete_document
 from documind.search import search_chunks, answer_question
-from documind.azure_services import analyze_with_document_intelligence, moderate_text
+from documind.azure_services import analyze_with_document_intelligence, moderate_text, detect_prompt_injection, analyze_language, translate_text
 from documind.azure_search import is_configured as search_configured, upload_chunks, search_chunks as azure_search_chunks
 from documind.config import settings
 from documind.extraction import extract_fields_locally
@@ -47,6 +47,11 @@ class ExtractionRequest(BaseModel):
 class ModerationRequest(BaseModel):
     text: str = Field(min_length=1, max_length=10000)
 
+class TranslationRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=45000)
+    target_language: str = Field(min_length=2, max_length=10)
+    source_language: str | None = Field(default=None, max_length=10)
+
 def public_document(doc):
     return {key: doc[key] for key in ("id", "name", "file_type", "pages", "sha256", "created_at", "chunk_count")}
 
@@ -55,6 +60,8 @@ def integrations():
         "azure_search": search_configured(),
         "document_intelligence": bool(settings.document_intelligence_endpoint and settings.document_intelligence_key),
         "content_safety": bool(settings.content_safety_endpoint and settings.content_safety_key),
+        "azure_language": bool(settings.language_endpoint and settings.language_key),
+        "azure_translator": bool(settings.translator_key and settings.translator_region),
         "ollama": bool(settings.ollama_model),
         "answer_model": settings.ollama_model or "Extractive answers"
     }
@@ -152,11 +159,23 @@ def ask_contract(document_id: int, payload: ContractQuestionRequest):
         raise HTTPException(status_code=422, detail="Enter a question.")
     safety = moderate_text(question)
     if safety.get("blocked"):
-        raise HTTPException(status_code=400, detail="The content safety check flagged this query.")
+        status = 503 if safety.get("status") == "unavailable" else 400
+        raise HTTPException(status_code=status, detail="Azure AI Content Safety blocked this request or is unavailable.")
     hits = search_chunks(question, [doc["name"]], 5)
-    answer = answer_question(question, hits)
+    shield = detect_prompt_injection(question, [hit["text"] for hit in hits])
+    if shield.get("blocked"):
+        status = 503 if shield.get("status") == "unavailable" else 400
+        raise HTTPException(status_code=status, detail="Prompt Shields blocked this request or is unavailable.")
+    flagged = set(shield.get("flagged_documents", []))
+    safe_hits = [hit for index, hit in enumerate(hits) if index not in flagged]
+    if not safe_hits:
+        raise HTTPException(status_code=400, detail="Retrieved contract passages contained prompt-injection instructions and were excluded.")
+    answer = answer_question(question, safe_hits)
+    output_safety = moderate_text(answer)
+    if output_safety.get("blocked"):
+        raise HTTPException(status_code=502, detail="The generated answer did not pass the content-safety check.")
     record_event("contract_query", doc["name"], question[:240])
-    return {"answer": answer, "sources": hits, "document": doc["name"], "answer_model": settings.ollama_model or "Extractive"}
+    return {"answer": answer, "sources": safe_hits, "document": doc["name"], "answer_model": settings.ollama_model or "Extractive", "safety": {"moderation": safety.get("provider"), "prompt_shields": shield.get("provider"), "output_checked": True}}
 
 @app.delete("/api/documents/{document_id}")
 def remove_document(document_id: int):
@@ -174,7 +193,8 @@ def ask(payload: QuestionRequest):
         raise HTTPException(status_code=422, detail="Enter a question.")
     safety = moderate_text(question)
     if safety.get("blocked"):
-        raise HTTPException(status_code=400, detail="The content safety check flagged this query.")
+        status = 503 if safety.get("status") == "unavailable" else 400
+        raise HTTPException(status_code=status, detail="Azure AI Content Safety blocked this request or is unavailable. Check the moderation status before retrying.")
     hits = []
     retrieval = "Local TF-IDF"
     if search_configured():
@@ -185,9 +205,20 @@ def ask(payload: QuestionRequest):
             hits = search_chunks(question, payload.documents or None, payload.top)
     else:
         hits = search_chunks(question, payload.documents or None, payload.top)
-    answer = answer_question(question, hits)
+    shield = detect_prompt_injection(question, [hit["text"] for hit in hits])
+    if shield.get("blocked"):
+        status = 503 if shield.get("status") == "unavailable" else 400
+        raise HTTPException(status_code=status, detail="Prompt Shields blocked this request or is unavailable.")
+    flagged = set(shield.get("flagged_documents", []))
+    safe_hits = [hit for index, hit in enumerate(hits) if index not in flagged]
+    if not safe_hits:
+        raise HTTPException(status_code=400, detail="Retrieved passages contained prompt-injection instructions and were excluded.")
+    answer = answer_question(question, safe_hits)
+    output_safety = moderate_text(answer)
+    if output_safety.get("blocked"):
+        raise HTTPException(status_code=502, detail="The generated answer did not pass the content-safety check.")
     record_event("query", "Knowledge Assistant", question[:240])
-    return {"answer": answer, "sources": hits, "retrieval": retrieval, "answer_model": settings.ollama_model or "Extractive"}
+    return {"answer": answer, "sources": safe_hits, "retrieval": retrieval, "answer_model": settings.ollama_model or "Extractive", "safety": {"moderation": safety.get("provider"), "prompt_shields": shield.get("provider"), "output_checked": True}}
 
 @app.post("/api/extract")
 def extract(payload: ExtractionRequest):
@@ -209,6 +240,23 @@ def moderate(payload: ModerationRequest):
     record_event("moderation", "Content Safety", f"{len(payload.text)} characters analyzed")
     return result
 
+@app.get("/api/insights/{document_id}")
+def document_insights(document_id: int):
+    doc = next((item for item in list_documents() if item["id"] == document_id), None)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    result = analyze_language(doc["text"])
+    record_event("azure_language_insights", doc["name"], result.get("provider", "Unavailable"))
+    return result
+
+@app.post("/api/translate")
+def translate(payload: TranslationRequest):
+    result = translate_text(payload.text, payload.target_language, payload.source_language)
+    if result.get("error"):
+        raise HTTPException(status_code=503 if result.get("configured") else 400, detail=result["error"])
+    record_event("translation", "Azure AI Translator", f"Translated {len(payload.text)} characters")
+    return result
+
 @app.get("/api/activity")
 def activity():
     return get_events(250)
@@ -218,7 +266,14 @@ def get_settings():
     return {
         "integrations": integrations(),
         "limits": {"max_upload_mb": settings.max_upload_mb, "chunk_size": settings.chunk_size, "chunk_overlap": settings.chunk_overlap},
-        "privacy": "Credentials are read by the backend from environment variables and are never returned by this API."
+        "privacy": "Credentials are read by the backend from environment variables and are never returned by this API.",
+        "azure_services": {
+            "content_safety": "Moderates user prompts and generated answers; Prompt Shields checks prompts and retrieved passages before LLM use.",
+            "document_intelligence": "Layout/OCR extraction on demand; F0 analyzes at most two pages per request.",
+            "ai_search": "Azure-hosted text index for document chunks; Free tier storage is limited to 50 MB.",
+            "language": "Language detection, key phrase extraction and PII entity detection on demand.",
+            "translator": "Translation of selected text using the F0 character allowance."
+        }
     }
 
 frontend_dist = Path(__file__).parent / "frontend" / "dist"
