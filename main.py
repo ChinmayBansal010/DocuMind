@@ -226,13 +226,24 @@ def extract(payload: ExtractionRequest):
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found.")
     result = analyze_with_document_intelligence(doc["path"])
-    if result.get("fields"):
-        fields, method = result["fields"], "Azure Document Intelligence"
+    if result.get("extracted_text"):
+        fields = result.get("fields", {})
+        method = "Azure Document Intelligence Layout"
+    elif result.get("fields"):
+        fields = result["fields"]
+        method = "Azure Document Intelligence"
     else:
         fields = extract_fields_locally(doc["text"], payload.fields)
         method = "Local pattern-based extraction"
     record_event("extraction", doc["name"], method)
-    return {"fields": fields, "method": method, "warning": result.get("error")}
+    return {
+        "fields": fields,
+        "method": method,
+        "layout_text": result.get("extracted_text", ""),
+        "tables": result.get("tables", []),
+        "pages_analyzed": result.get("pages_analyzed", 0),
+        "warning": result.get("error")
+    }
 
 @app.post("/api/moderate")
 def moderate(payload: ModerationRequest):
