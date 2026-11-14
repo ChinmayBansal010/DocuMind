@@ -32,20 +32,20 @@ with st.sidebar:
     st.caption("Intelligent document workspace")
     page = st.radio("WORKSPACE", ["Overview","Documents","Ask documents","Extraction","Responsible AI","Activity","Settings"], label_visibility="collapsed")
     st.divider()
-    st.success("Local-first processing")
-    st.caption("Azure calls are optional and credential-gated.")
+    st.success("Hybrid · Azure integrated")
+    st.caption("Azure AI Search provides cloud indexing and retrieval.")
 
 docs = list_documents()
 
 if page == "Overview":
-    header("WORKSPACE / OVERVIEW","Your documents, understood.","A local-first document intelligence workspace with optional Azure integrations.")
+    header("WORKSPACE / OVERVIEW","Your documents, understood.","An Azure-powered document intelligence workspace with local processing fallbacks.")
     st.write("")
     a,b,c,d = st.columns(4)
     stats = get_stats()
     a.metric("Documents",stats["documents"])
     b.metric("Indexed chunks",stats["chunks"])
     c.metric("Questions",stats["queries"])
-    d.metric("Azure services","Configured" if settings.azure_configured else "Optional")
+    d.metric("Azure AI Search","Connected" if settings.search_endpoint and settings.search_key else "Not configured")
     st.write("")
     left,right = st.columns([1.4,1])
     with left:
@@ -56,7 +56,7 @@ if page == "Overview":
             st.info("Your library is empty. Upload a document to get started.")
     with right:
         st.subheader("Processing pipeline")
-        st.markdown("**01 · Ingest** — PDF, DOCX, PPTX, XLSX, CSV and images\n\n**02 · Understand** — text extraction and OCR\n\n**03 · Index** — SQLite and TF-IDF retrieval\n\n**04 · Ask** — grounded answers with source passages\n\n**05 · Protect** — optional Azure Content Safety")
+        st.markdown("**01 · Ingest** — PDF, DOCX, PPTX, XLSX, CSV and images\n\n**02 · Understand** — Azure Document Intelligence and local parsers\n\n**03 · Index** — Azure AI Search and SQLite catalogue\n\n**04 · Ask** — cloud retrieval with grounded source passages\n\n**05 · Protect** — Azure AI Content Safety")
 elif page == "Documents":
     header("WORKSPACE / DOCUMENTS","Document library","Upload, process and manage the documents used across the workspace.")
     uploaded = st.file_uploader("Add documents",type=["pdf","docx","txt","md","pptx","xlsx","csv","png","jpg","jpeg","tif","tiff"],accept_multiple_files=True)
@@ -73,6 +73,9 @@ elif page == "Documents":
                 parsed=extract_document(path)
                 chunks=split_text(parsed["text"],settings.chunk_size,settings.chunk_overlap)
                 add_document(f.name,path,parsed["file_type"],parsed["text"],parsed["pages"],digest,chunks)
+                if settings.search_endpoint and settings.search_key:
+                    from documind.azure_search import upload_chunks
+                    upload_chunks(f.name,digest,chunks)
                 record_event("upload",f.name,f"{len(chunks)} chunks indexed")
                 st.success(f"{f.name}: processed.")
             except Exception as e:
@@ -106,7 +109,16 @@ elif page == "Ask documents":
             if safety.get("blocked"):
                 st.error("The configured safety check flagged this query.")
             else:
-                hits=search_chunks(question,selected or None,top)
+                if settings.search_endpoint and settings.search_key:
+                    from documind.azure_search import search_chunks as azure_search_chunks
+                    try:
+                        hits=azure_search_chunks(question,selected or None,top)
+                        st.caption("Retrieved from Azure AI Search.")
+                    except Exception as exc:
+                        st.warning(f"Azure AI Search request failed; using local TF-IDF retrieval. Details: {exc}")
+                        hits=search_chunks(question,selected or None,top)
+                else:
+                    hits=search_chunks(question,selected or None,top)
                 answer=answer_question(question,hits)
                 record_event("query","Knowledge Assistant",question[:240])
                 st.subheader("Answer")
@@ -139,7 +151,7 @@ elif page == "Extraction":
             st.dataframe(pd.DataFrame([{"Field":k,"Value":v.get("value",""),"Confidence":v.get("confidence",0),"Source":v.get("source","")} for k,v in fields.items()]),use_container_width=True,hide_index=True)
             st.download_button("Download JSON",json.dumps(fields,indent=2,ensure_ascii=False),"extraction.json","application/json")
 elif page == "Responsible AI":
-    header("WORKSPACE / RESPONSIBLE AI","Content safety","Azure AI Content Safety is optional. The offline keyword fallback is only a demonstration, not a safety classifier.")
+    header("WORKSPACE / RESPONSIBLE AI","Content safety","Analyze text with Azure AI Content Safety. The offline keyword fallback is only a demonstration, not a safety classifier.")
     text=st.text_area("Text to analyze",height=180)
     if st.button("Analyze",type="primary",disabled=not text.strip()):
         result=moderate_text(text)
@@ -161,15 +173,15 @@ elif page == "Activity":
         st.download_button("Export CSV",frame.to_csv(index=False),"documind_activity.csv","text/csv")
     else: st.info("No activity yet.")
 else:
-    header("WORKSPACE / CONFIGURATION","Settings and integrations","Optional Azure services are only called when endpoints and credentials are configured.")
+    header("WORKSPACE / CONFIGURATION","Settings and integrations","Configure Azure AI services through environment variables. Secrets are not stored in the database.")
     checks=[
         ("Azure AI Document Intelligence",bool(settings.document_intelligence_endpoint and settings.document_intelligence_key)),
         ("Azure AI Content Safety",bool(settings.content_safety_endpoint and settings.content_safety_key)),
-        ("Azure AI Search helper",bool(settings.search_endpoint and settings.search_key)),
+        ("Azure AI Search cloud retrieval",bool(settings.search_endpoint and settings.search_key and settings.search_index)),
         ("Ollama",bool(settings.ollama_model))
     ]
     for name,enabled in checks: st.write(("🟢 " if enabled else "⚪ ")+name+(" · configured" if enabled else " · not configured"))
     st.subheader("Strict cost policy")
-    st.markdown("- No Azure resources are provisioned by the application.\n- Local disk, SQLite and TF-IDF are the defaults.\n- No Azure OpenAI or paid model endpoint is required.\n- Blob Storage is intentionally not enabled by default.\n- Free-tier availability and quotas must be verified in the Azure portal.")
+    st.markdown("- No Azure resources are provisioned by the application.\n- Azure AI Search is used for cloud indexing and retrieval when configured; SQLite remains the local catalogue and fallback.\n- Azure Document Intelligence powers structured extraction; Content Safety powers moderation when configured.\n- No Azure OpenAI, paid model endpoint, Blob Storage or paid compute is required.\n- Free-tier availability and quotas must be verified in the Azure portal.")
     st.subheader("Configuration")
     st.code("cp .env.example .env   # Fedora\nCopy-Item .env.example .env   # Windows PowerShell",language="powershell")
