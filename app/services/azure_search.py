@@ -66,7 +66,7 @@ def ensure_index() -> None:
                     "name": "content_vector",
                     "type": "Collection(Edm.Single)",
                     "searchable": True,
-                    "vectorSearchDimensions": settings.search_vector_dimensions,
+                    "dimensions": settings.search_vector_dimensions,
                     "vectorSearchProfile": "documind-vector-profile",
                 },
             ],
@@ -121,7 +121,7 @@ def ensure_index() -> None:
         )
     vector_field = fields["content_vector"]
     if (
-        vector_field.get("vectorSearchDimensions") != settings.search_vector_dimensions
+        vector_field.get("dimensions") != settings.search_vector_dimensions
         or not vector_field.get("vectorSearchProfile")
     ):
         raise AzureServiceError(
@@ -151,7 +151,9 @@ def upsert_version(
         documents = [
             {
                 "@search.action": "mergeOrUpload",
-                "id": f"{version_id}:{item['index']}",
+                "id": hashlib.sha256(
+                    f"{version_id}:{item['index']}".encode("utf-8")
+                ).hexdigest(),
                 "owner_id": _owner_key(owner_id),
                 "project_id": project_id,
                 "contract_id": contract_id,

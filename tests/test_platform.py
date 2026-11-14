@@ -233,6 +233,66 @@ def test_ollama_embedding_connection_error_explains_docker_host_route(monkeypatc
         rag.embed(["embedding connectivity test"])
 
 
+def test_azure_search_index_creation_uses_rest_vector_dimensions(monkeypatch):
+    from app.services import azure_search
+
+    calls = []
+
+    def fake_request(_service, method, _url, **kwargs):
+        calls.append((method, kwargs.get("json")))
+        return SimpleNamespace(status_code=404 if method == "GET" else 201)
+
+    monkeypatch.setattr(azure_search, "request", fake_request)
+
+    azure_search.ensure_index()
+
+    assert [method for method, _body in calls] == ["GET", "PUT"]
+    vector_field = next(
+        field
+        for field in calls[1][1]["fields"]
+        if field["name"] == "content_vector"
+    )
+    assert vector_field["dimensions"] == settings.search_vector_dimensions
+    assert "vectorSearchDimensions" not in vector_field
+
+
+def test_azure_search_document_keys_use_supported_characters(monkeypatch):
+    from app.services import azure_search
+
+    captured = {}
+    monkeypatch.setattr(azure_search, "ensure_index", lambda: None)
+    monkeypatch.setattr(
+        azure_search,
+        "request",
+        lambda _service, _method, _url, **kwargs: captured.update(kwargs) or object(),
+    )
+    monkeypatch.setattr(
+        azure_search,
+        "response_object",
+        lambda _service, _response: {"value": [{"status": True}]},
+    )
+
+    azure_search.upsert_version(
+        owner_id="owner",
+        project_id="project",
+        contract_id="contract",
+        version_id="version:with:separators",
+        document_name="contract.txt",
+        chunks=[
+            {
+                "index": 0,
+                "page_number": 1,
+                "text": "Test clause.",
+                "embedding": [0.0] * settings.search_vector_dimensions,
+            }
+        ],
+    )
+
+    document_id = captured["json"]["value"][0]["id"]
+    assert len(document_id) == 64
+    assert set(document_id) <= set("0123456789abcdef")
+
+
 def test_project_crud_and_cross_user_isolation(client):
     created = client.post(
         "/api/v1/projects",
