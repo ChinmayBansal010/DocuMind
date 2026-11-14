@@ -66,23 +66,36 @@ def search_chunks(query, document_names=None, top=5):
 def delete_document_chunks(document_sha256):
     if not is_configured():
         return {"deleted": 0, "configured": False}
-    url = f"{settings.search_endpoint}/indexes/{settings.search_index}/docs"
+    url = f"{settings.search_endpoint}/indexes/{settings.search_index}/docs/search"
     headers = _headers()
-    response = requests.post(
-        url,
-        params={"api-version": settings.search_api_version},
-        headers=headers,
-        json={"search": "*", "filter": f"document_sha256 eq '{document_sha256}'", "select": "id", "top": 1000},
-        timeout=30
-    )
-    response.raise_for_status()
-    keys = [{"@search.action": "delete", "id": item["id"]} for item in response.json().get("value", [])]
-    if keys:
+    keys = []
+    skip = 0
+    while True:
+        response = requests.post(
+            url,
+            params={"api-version": settings.search_api_version},
+            headers=headers,
+            json={
+                "search": "*",
+                "filter": f"document_sha256 eq '{document_sha256}'",
+                "select": "id",
+                "top": 1000,
+                "skip": skip
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        page = response.json().get("value", [])
+        keys.extend({"@search.action": "delete", "id": item["id"]} for item in page)
+        if len(page) < 1000:
+            break
+        skip += 1000
+    for start in range(0, len(keys), 1000):
         result = requests.post(
             f"{settings.search_endpoint}/indexes/{settings.search_index}/docs/index",
             params={"api-version": settings.search_api_version},
             headers=headers,
-            json={"value": keys},
+            json={"value": keys[start:start + 1000]},
             timeout=30
         )
         result.raise_for_status()
