@@ -20,6 +20,9 @@ describe("Neon access token", () => {
     neon.client.token.mockResolvedValue({ data: { token: "access-jwt" }, error: null });
 
     await expect(getAccessToken()).resolves.toBe("access-jwt");
+    expect(neon.client.token).toHaveBeenCalledWith({
+      fetchOptions: { headers: { "X-Force-Fetch": "true" } },
+    });
   });
 
   it("does not fall back to a potentially expired session JWT when token retrieval fails", async () => {

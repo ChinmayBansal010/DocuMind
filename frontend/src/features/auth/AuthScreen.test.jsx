@@ -52,6 +52,10 @@ describe("AuthScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create account" }));
 
     expect(await screen.findByRole("heading", { name: "Check your inbox" })).toBeTruthy();
+    await waitFor(() => expect(auth.emailOtp.sendVerificationOtp).toHaveBeenCalledWith({
+      email: "person@example.test",
+      type: "email-verification",
+    }));
     fireEvent.change(screen.getByLabelText("Six-digit code"), { target: { value: "123456" } });
     fireEvent.click(screen.getByRole("button", { name: "Verify email" }));
 

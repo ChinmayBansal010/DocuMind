@@ -178,6 +178,32 @@ def test_jwks_token_validation_requires_valid_issuer_and_expiry(monkeypatch):
     assert error.value.status_code == 401
 
 
+def test_authenticated_user_profile_is_persisted_by_neon_subject(tmp_path, monkeypatch):
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'auth-profile.db'}")
+    Base.metadata.create_all(engine)
+    test_sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    monkeypatch.setattr(
+        security,
+        "decode_access_token",
+        lambda _token: {"sub": "neon-user-id", "email": "person@example.test", "name": "Avery"},
+    )
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="valid-token")
+
+    with test_sessions() as session:
+        user = security.get_current_user(credentials=credentials, db=session)
+        assert user.id == "neon-user-id"
+        assert user.email == "person@example.test"
+        assert user.name == "Avery"
+
+    with test_sessions() as session:
+        persisted = session.get(User, "neon-user-id")
+        assert persisted is not None
+        assert session.query(User).count() == 1
+    engine.dispose()
+
+
 def test_project_crud_and_cross_user_isolation(client):
     created = client.post(
         "/api/v1/projects",
@@ -352,6 +378,28 @@ def test_azure_provider_rate_limit_has_service_specific_error(monkeypatch):
     assert error.value.status_code == 429
 
 
+def test_azure_request_includes_safe_provider_error_details(monkeypatch):
+    from app.services.azure_ai import request
+
+    monkeypatch.setattr(
+        "app.services.azure_ai.requests.request",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            status_code=400,
+            ok=False,
+            json=lambda: {
+                "error": {
+                    "code": "InvalidRequestBody",
+                    "message": "Can't parse your request correctly.\nCheck the API definition.",
+                }
+            },
+        ),
+    )
+    with pytest.raises(AzureServiceError, match="InvalidRequestBody") as error:
+        request("Content Safety", "POST", "https://safety.example.test", headers={})
+    assert "Can't parse your request correctly." in str(error.value)
+    assert error.value.status_code == 502
+
+
 def test_azure_f0_quota_is_tracked_and_enforced(tmp_path):
     engine = create_engine(f"sqlite:///{tmp_path / 'quota.db'}")
     Base.metadata.create_all(engine)
@@ -412,6 +460,39 @@ def test_prompt_shields_fails_closed_on_missing_document_analysis(monkeypatch):
     )
     with pytest.raises(AzureServiceError, match="Azure Content Safety"):
         azure_ai.shield_prompt("Summarize this contract.", ["source passage"], db=None)
+
+
+def test_prompt_shields_uses_string_documents_and_maps_flagged_chunk_indexes(monkeypatch):
+    from app.services import azure_ai
+
+    monkeypatch.setattr(azure_ai, "reserve_monthly_usage", lambda *_args: None)
+    requests_seen = []
+
+    def fake_request(_service, _method, _url, *, json, **_kwargs):
+        requests_seen.append(json)
+        document_results = [
+            {"attackDetected": index == 3}
+            for index in range(len(json["documents"]))
+        ]
+        if len(requests_seen) == 2:
+            document_results[0]["attackDetected"] = True
+        return SimpleNamespace(
+            json=lambda: {
+                "userPromptAnalysis": {"attackDetected": False},
+                "documentsAnalysis": document_results,
+            }
+        )
+
+    monkeypatch.setattr(azure_ai, "request", fake_request)
+    findings = azure_ai.shield_prompt(
+        "Summarize this contract.",
+        [f"source passage {index}" for index in range(6)],
+        db=None,
+    )
+
+    assert requests_seen[0]["documents"] == [f"source passage {i}" for i in range(5)]
+    assert requests_seen[1]["documents"] == ["source passage 5"]
+    assert findings["flagged_document_ids"] == ["3", "5"]
 
 
 def test_translator_splits_text_at_f0_request_limit(monkeypatch):

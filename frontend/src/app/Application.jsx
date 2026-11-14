@@ -21,22 +21,19 @@ export default function Application() {
     const result = await authClient.getSession();
     if (result.error) throw new Error(result.error.message || "Unable to restore the current session.");
     const sessionUser = result.data?.user || result.data?.session?.user || null;
-    setUser(sessionUser);
     if (!sessionUser) {
+      setUser(null);
       setProfile(null);
       return null;
     }
-    if (sessionUser) {
-      try {
-        const storedProfile = await api("/profile");
-        setProfile({
-          ...storedProfile,
-          email: sessionUser.email || storedProfile.email,
-          name: storedProfile.name || sessionUser.name || "",
-        });
-      }
-      catch (error) { setNotice(error.message); }
-    }
+    const storedProfile = await api("/profile");
+    setProfile({
+      ...storedProfile,
+      email: sessionUser.email || storedProfile.email,
+      name: storedProfile.name || sessionUser.name || "",
+    });
+    setUser(sessionUser);
+    setNotice("");
     return sessionUser;
   };
 

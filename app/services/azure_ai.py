@@ -1,3 +1,4 @@
+import re
 import threading
 import time
 from urllib.parse import quote, urlencode, urlsplit
@@ -21,6 +22,24 @@ def _throttle(service: str, interval: float) -> None:
         _last_request[service] = time.monotonic()
 
 
+def _provider_error_details(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+    except (AttributeError, ValueError, TypeError):
+        return ""
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return ""
+    code = error.get("code")
+    message = error.get("message")
+    details = []
+    if isinstance(code, str) and code.strip():
+        details.append(re.sub(r"[\r\n\t]+", " ", code).strip()[:100])
+    if isinstance(message, str) and message.strip():
+        details.append(re.sub(r"[\r\n\t]+", " ", message).strip()[:300])
+    return ": ".join(details)
+
+
 def request(
     service: str,
     method: str,
@@ -42,21 +61,27 @@ def request(
     if response.status_code in acceptable_statuses:
         return response
     if response.status_code == 429:
+        details = _provider_error_details(response)
         raise AzureServiceError(
             service,
-            "rejected the request because its rate limit or quota was reached; retry after the quota resets.",
+            "rejected the request because its rate limit or quota was reached; retry after the quota resets."
+            + (f" Provider details: {details}" if details else ""),
             status_code=429,
         )
     if response.status_code in (401, 403):
+        details = _provider_error_details(response)
         raise AzureServiceError(
             service,
-            f"rejected the request (HTTP {response.status_code}); check the key, endpoint, region, and tier.",
+            f"rejected the request (HTTP {response.status_code}); check the key, endpoint, region, and tier."
+            + (f" Provider details: {details}" if details else ""),
             status_code=503,
         )
     if not response.ok:
+        details = _provider_error_details(response)
         raise AzureServiceError(
             service,
-            f"could not complete the request (HTTP {response.status_code}).",
+            f"could not complete the request (HTTP {response.status_code})"
+            + (f": {details}" if details else "."),
             status_code=502,
         )
     return response
@@ -302,8 +327,7 @@ def shield_prompt(
     prompt_attack = False
     flagged_documents = []
     batches = [documents[index : index + 5] for index in range(0, len(documents), 5)] or [[]]
-    for batch_start in range(0, len(batches), 1):
-        batch = batches[batch_start]
+    for batch_start, batch in enumerate(batches):
         document_text = [item[:10_000] for item in batch]
         if sum(map(len, document_text)) > 10_000:
             raise AzureServiceError(
@@ -328,10 +352,7 @@ def shield_prompt(
             },
             json={
                 "userPrompt": user_prompt,
-                "documents": [
-                    {"id": str(batch_start * 5 + index), "text": text}
-                    for index, text in enumerate(document_text)
-                ],
+                "documents": document_text,
             },
             interval=0.2,
         )
@@ -345,7 +366,6 @@ def shield_prompt(
             or len(document_analysis) != len(document_text)
             or any(
                 not isinstance(item, dict)
-                or not isinstance(item.get("id"), str)
                 or not isinstance(item.get("attackDetected"), bool)
                 for item in document_analysis
             )
@@ -353,9 +373,9 @@ def shield_prompt(
             raise AzureServiceError("Content Safety", "returned an invalid response.", status_code=502)
         prompt_attack = prompt_attack or prompt_analysis.get("attackDetected", False)
         flagged_documents.extend(
-            item.get("id")
-            for item in document_analysis
-            if item.get("attackDetected")
+            str(batch_start * 5 + index)
+            for index, item in enumerate(document_analysis)
+            if item["attackDetected"]
         )
     return {
         "provider": "Azure AI Content Safety Prompt Shields",

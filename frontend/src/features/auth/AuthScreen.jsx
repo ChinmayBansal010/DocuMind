@@ -63,6 +63,11 @@ export default function AuthScreen({ onAuthenticated }) {
       if (mode === "sign-up") {
         setMode("verify");
         setVerificationCode("");
+        try {
+          await sendVerificationCode();
+        } catch (verificationError) {
+          setError(`Your account was created, but the verification code could not be sent: ${verificationError.message}`);
+        }
         return;
       }
       await finishSignIn();
