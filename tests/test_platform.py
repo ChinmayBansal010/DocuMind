@@ -293,6 +293,68 @@ def test_azure_search_document_keys_use_supported_characters(monkeypatch):
     assert set(document_id) <= set("0123456789abcdef")
 
 
+def test_rag_answer_uses_cited_ollama_chat_response(monkeypatch):
+    from app.engines import rag
+
+    monkeypatch.setattr(settings, "ollama_model", "llama3.1:8b")
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["json"] = kwargs["json"]
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {
+                "message": {
+                    "content": (
+                        '{"answer":"This agreement covers professional services.",'
+                        '"source_ids":[1]}'
+                    )
+                }
+            },
+        )
+
+    monkeypatch.setattr(rag.requests, "post", fake_post)
+    sources = [
+        {
+            "document_name": "services.pdf",
+            "page": 1,
+            "text": "Provider will configure a document-review workspace.",
+        }
+    ]
+
+    result = rag.answer("What is this contract about?", sources)
+
+    assert result == "This agreement covers professional services. [S1]"
+    assert captured["url"].endswith("/api/chat")
+    assert captured["json"]["messages"][0]["role"] == "system"
+    assert captured["json"]["format"]["properties"]["source_ids"]["items"]["maximum"] == 1
+
+
+def test_rag_answer_rejects_invalid_source_ids(monkeypatch):
+    from app.engines import rag
+
+    monkeypatch.setattr(settings, "ollama_model", "llama3.1:8b")
+    monkeypatch.setattr(
+        rag.requests,
+        "post",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {
+                "message": {
+                    "content": '{"answer":"Unsupported claim.","source_ids":[2]}'
+                }
+            },
+        ),
+    )
+    sources = [{"document_name": "services.pdf", "page": 1, "text": "Source passage."}]
+
+    result = rag.answer("What is this contract about?", sources)
+
+    assert result.startswith("I could not generate a grounded answer")
+    assert "Source passage." in result
+
+
 def test_project_crud_and_cross_user_isolation(client):
     created = client.post(
         "/api/v1/projects",
