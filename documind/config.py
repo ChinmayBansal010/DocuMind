@@ -22,7 +22,7 @@ class Settings:
         self.search_index = os.getenv("AZURE_SEARCH_INDEX", "documind-index")
         self.search_api_version = os.getenv("AZURE_SEARCH_API_VERSION", "2024-07-01")
         self.ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
-        self.ollama_model = os.getenv("OLLAMA_MODEL", "")
+        self.ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
         self.azure_configured = bool(self.document_intelligence_endpoint or self.content_safety_endpoint or self.search_endpoint)
 
 settings = Settings()

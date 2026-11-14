@@ -25,9 +25,12 @@ def answer_question(question, hits):
         try:
             import requests
             prompt = "Answer only from the supplied context. If absent, say so. Cite sources as [1], [2].\n\nCONTEXT:\n" + context + "\n\nQUESTION: " + question
-            response = requests.post(settings.ollama_url.rstrip("/") + "/api/generate", json={"model":settings.ollama_model,"prompt":prompt,"stream":False}, timeout=120)
+            response = requests.post(settings.ollama_url.rstrip("/") + "/api/generate", json={"model":settings.ollama_model,"prompt":prompt,"stream":False}, timeout=(5, 240))
             response.raise_for_status()
-            return response.json().get("response","").strip()
+            generated = response.json().get("response", "").strip()
+            if not generated:
+                raise RuntimeError("Ollama returned an empty response.")
+            return generated
         except Exception as exc:
-            return "Ollama unavailable; retrieved passages are shown below.\n\n" + "\n\n".join(h["text"] for h in hits[:3]) + f"\n\nError: {exc}"
+            return f"Ollama unavailable at {settings.ollama_url} for model {settings.ollama_model}: {exc}. Retrieved passages are shown below instead.\n\n" + "\n\n".join(h["text"] for h in hits[:3])
     return "Extractive result from the most relevant passage (not LLM-generated):\n\n" + hits[0]["text"] + "\n\nSources: " + ", ".join(dict.fromkeys(h["document_name"] for h in hits[:5]))

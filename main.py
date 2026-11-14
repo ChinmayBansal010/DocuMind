@@ -16,9 +16,18 @@ from documind.azure_search import is_configured as search_configured, upload_chu
 from documind.config import settings
 from documind.extraction import extract_fields_locally
 
-app = FastAPI(title="DocuMind API", version="2.0.0")
+app = FastAPI(title="DocuMind", version="2.1.0", docs_url=None, redoc_url=None, openapi_url=None)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_credentials=False, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
 initialize_db()
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'"
 
 class QuestionRequest(BaseModel):
     question: str = Field(min_length=1, max_length=12000)
@@ -62,7 +71,10 @@ async def upload_documents(files: list[UploadFile] = File(...)):
     results = []
     for file in files:
         name = Path(file.filename or "document").name
-        raw = await file.read()
+        raw = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
+        if len(raw) > settings.max_upload_mb * 1024 * 1024:
+            results.append({"name": name, "status": "error", "message": f"File exceeds the {settings.max_upload_mb} MB limit."})
+            continue
         digest = hashlib.sha256(raw).hexdigest()
         if any(d["sha256"] == digest for d in list_documents()):
             results.append({"name": name, "status": "skipped", "message": "This file is already in your library."})
@@ -114,7 +126,7 @@ def ask(payload: QuestionRequest):
             hits = azure_search_chunks(question, payload.documents or None, payload.top)
             retrieval = "Azure AI Search"
         except Exception:
-            hits = search_chunks(question, payload.documents or None, payload.top_k if hasattr(payload, "top_k") else payload.top)
+            hits = search_chunks(question, payload.documents or None, payload.top)
     else:
         hits = search_chunks(question, payload.documents or None, payload.top)
     answer = answer_question(question, hits)
