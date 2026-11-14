@@ -80,14 +80,47 @@ The Vite server proxies `/api` to FastAPI. Visit `http://localhost:5173`.
 
 ## Windows development and deployment
 
-Use **Command Prompt (CMD)** for the commands below. Requirements: Python 3.11+, Node.js 22+, npm, LibreOffice Writer, Ollama, and configured Neon and Azure AI F0/Free services.
+Use **Command Prompt (CMD)** for every command below. Install Python 3.11+, Node.js 22+, Docker Desktop with the WSL 2 backend, Ollama for Windows, and LibreOffice Writer using their official installers:
 
-Copy the example configuration without replacing an existing `.env`, then edit it:
+- [Python](https://www.python.org/downloads/windows/)
+- [Node.js LTS](https://nodejs.org/en/download)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- [Ollama for Windows](https://ollama.com/download/windows)
+- [LibreOffice](https://www.libreoffice.org/download/download-libreoffice/)
+
+After installation, start Docker Desktop and Ollama, open a new CMD window, and verify:
+
+```cmd
+py -3.11 --version
+node --version
+npm --version
+docker --version
+docker compose version
+ollama --version
+```
+
+If you do not already have a working copy, clone it; otherwise skip the clone command. Change to the repository root:
+
+```cmd
+git clone https://github.com/ChinmayBansal010/DocuMind.git
+cd /d DocuMind
+```
+
+Download Ollama's required embedding model and the optional local reasoning model:
+
+```cmd
+ollama pull nomic-embed-text
+ollama pull llama3.1:8b
+```
+
+Create `.env` only if it does not already exist, then edit it:
 
 ```cmd
 if not exist .env copy .env.example .env
 notepad .env
 ```
+
+Set the existing Neon branch's database, Auth base/JWKS URLs, and all five required Azure AI F0/Free service settings. Keep `OLLAMA_EMBEDDING_MODEL=nomic-embed-text`; set `OLLAMA_MODEL=llama3.1:8b` to enable local reasoning. Leave it blank to disable model-generated reasoning. For Docker with Ollama installed on Windows, set `OLLAMA_URL=http://host.docker.internal:11434`. Add `http://localhost:8000` to that Neon Auth branch's trusted domains for Docker, or `http://localhost:5173` for Vite development. Startup will fail if the required Azure configuration is missing.
 
 For Vite development, open one CMD window at the repository root:
 
@@ -110,9 +143,9 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 Open `http://localhost:5173`. Alternatively, run `run.cmd` from CMD to install dependencies, build the frontend, apply migrations, and serve the app at `http://127.0.0.1:8000`.
 
-### Windows Docker deployment
+### Run DocuMind in Docker on Windows
 
-Install Docker Desktop with the WSL 2 backend, then run these commands from CMD in the repository root:
+Ensure Docker Desktop is running, then run these commands from CMD in the repository root:
 
 ```cmd
 if not exist .env copy .env.example .env
@@ -122,7 +155,15 @@ docker compose ps
 docker compose logs -f documind
 ```
 
-Open `http://localhost:8000`. Configure `OLLAMA_URL=http://host.docker.internal:11434` to use Ollama installed on Windows, or `OLLAMA_URL=http://ollama:11434` when using the optional Compose Ollama service. Stop the containers with `docker compose down`; this keeps uploaded documents and model volumes.
+Open `http://localhost:8000`. The container validates Azure settings, applies Alembic migrations, and starts the app. To run Ollama inside Compose instead of on Windows, change `.env` to `OLLAMA_URL=http://ollama:11434` and start both services:
+
+```cmd
+docker compose --profile ollama up --build -d
+docker compose exec ollama ollama pull nomic-embed-text
+docker compose exec ollama ollama pull llama3.1:8b
+```
+
+`docker compose logs -f documind` shows server logs; press Ctrl+C to stop following logs without stopping the app. Stop containers with `docker compose down`; this retains uploaded documents and model volumes. Do not run `run.cmd` at the same time as Docker because both use port 8000.
 
 The `run.sh` helper is for Linux/macOS, and `run.cmd` is for Windows CMD. Review `.env` before running either helper; database migrations target the configured environment.
 
@@ -173,7 +214,7 @@ docker compose up --build -d
 docker compose logs -f documind
 ```
 
-On Windows, use the [Windows Docker deployment](#windows-docker-deployment) instructions above.
+On Windows, use the [Windows Docker deployment](#run-documind-in-docker-on-windows) instructions above.
 
 The image builds the SPA with the Auth URL, applies `alembic upgrade head`, then starts FastAPI. The host port binds to `127.0.0.1:8000` by default. Change the bind address only when deploying behind a TLS-terminating reverse proxy with an appropriate network policy. Persist `/app/data`; it contains uploaded source files. Configure a strong `DOCUMENT_ENCRYPTION_KEY` if file-level encryption is required.
 
