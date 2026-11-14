@@ -126,8 +126,8 @@ def detect_prompt_injection(user_prompt, documents=None):
             result = response.json()
             user_attack = bool(result.get("userPromptAnalysis", {}).get("attackDetected"))
             document_attacks = [
-                item.get("id") for item in result.get("documentsAnalysis", [])
-                if item.get("attackDetected")
+                int(item.get("id")) for item in result.get("documentsAnalysis", [])
+                if item.get("attackDetected") and str(item.get("id", "")).isdigit()
             ]
             return {
                 "configured": True,
