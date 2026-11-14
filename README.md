@@ -154,7 +154,7 @@ When Ollama runs as a systemd service, configure it to listen on the host interf
 
 ```bash
 sudo mkdir -p /etc/systemd/system/ollama.service.d
-printf '[Service]\\nEnvironment="OLLAMA_HOST=0.0.0.0:11434"\\n' | sudo tee /etc/systemd/system/ollama.service.d/override.conf
+printf '[Service]\nEnvironment="OLLAMA_HOST=0.0.0.0:11434"\n' | sudo tee /etc/systemd/system/ollama.service.d/override.conf
 sudo systemctl daemon-reload
 sudo systemctl restart ollama
 sudo systemctl status ollama
