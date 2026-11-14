@@ -46,7 +46,7 @@ function App() {
     if (!extractId && d.length) setExtractId(String(d[0].id));
   };
   useEffect(() => { refresh().catch(e => setNotice({ type: "error", text: e.message })).finally(() => setLoading(false)); }, []);
-  const integrationCount = useMemo(() => Object.values(overview.integrations || {}).filter(Boolean).length, [overview.integrations]);
+  const integrationCount = useMemo(() => ["azure_search", "document_intelligence", "content_safety", "ollama"].filter(key => overview.integrations?.[key]).length, [overview.integrations]);
 
   const upload = async files => {
     if (!files?.length) return;
