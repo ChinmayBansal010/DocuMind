@@ -1,0 +1,18 @@
+services:
+  documind:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: documind-ai
+    ports:
+      - "8501:8501"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DOCUMIND_DATA_DIR: /app/data
+    volumes:
+      - documind_data:/app/data
+    restart: unless-stopped
+volumes:
+  documind_data:
