@@ -9,6 +9,19 @@
 - Review the source passages used to form an answer.
 - Delete documents from your local library.
 
+## Contract intelligence
+
+Open the **Contracts** workspace after adding a PDF or DOCX agreement. Select **Analyse contract** to generate a structured review using the configured Ollama model. The review can include:
+- Contract type, summary and parties.
+- Key terms and extracted dates or commercial details when stated in the source.
+- Clause classification with supporting excerpts and page references.
+- Potential risk flags with explanations and suggested review points.
+- Extracted obligations and deadlines.
+- Potentially missing provisions for human review.
+- Contract-specific Q&A that searches only the selected agreement and returns supporting passages.
+
+Analysis results are stored with the document in the local SQLite database. Re-run the analysis after replacing or changing a contract. If Ollama is unavailable or returns invalid structured output, DocuMind displays a limited rule-based fallback; it does not pretend that fallback is a full legal review. The risk labels are AI-assisted review signals, not legal opinions or a substitute for a qualified lawyer. Verify every finding against the original contract.
+
 ## Run with Docker
 Requirements: Docker Engine with Compose and Ollama installed on the host if you want local AI answers.
 
