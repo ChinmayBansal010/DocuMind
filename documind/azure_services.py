@@ -161,7 +161,7 @@ def detect_prompt_injection(user_prompt, documents=None):
     }
 
 
-def _language_request(kind, text):
+def _language_request(kind, text, language="en"):
     if not (settings.language_endpoint and settings.language_key):
         return None
     response = requests.post(
@@ -170,7 +170,7 @@ def _language_request(kind, text):
         headers={"Ocp-Apim-Subscription-Key": settings.language_key, "Content-Type": "application/json"},
         json={
             "kind": kind,
-            "analysisInput": {"documents": [{"id": "1", "language": "en", "text": (text or "")[:5000]}]},
+            "analysisInput": {"documents": [{"id": "1", "language": language, "text": (text or "")[:5000]}]},
             "parameters": {}
         },
         timeout=35
@@ -186,13 +186,15 @@ def analyze_language(text):
     try:
         language = _language_request("LanguageDetection", text)
         documents = language.get("results", {}).get("documents", []) if language else []
-        if documents:
-            result["language"] = documents[0].get("detectedLanguage")
-        phrases = _language_request("KeyPhraseExtraction", text)
+        detected = documents[0].get("detectedLanguage") if documents else None
+        if detected:
+            result["language"] = detected
+        language_code = (detected or {}).get("iso6391Name") or (detected or {}).get("iso6391") or "en"
+        phrases = _language_request("KeyPhraseExtraction", text, language_code)
         documents = phrases.get("results", {}).get("documents", []) if phrases else []
         if documents:
             result["key_phrases"] = documents[0].get("keyPhrases", [])
-        pii = _language_request("PiiEntityRecognition", text)
+        pii = _language_request("PiiEntityRecognition", text, language_code)
         documents = pii.get("results", {}).get("documents", []) if pii else []
         if documents:
             result["pii_entities"] = [
