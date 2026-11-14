@@ -1,3 +1,4 @@
+import logging
 from functools import lru_cache
 from typing import Any
 from urllib.parse import urlsplit
@@ -12,6 +13,7 @@ from app.core.config import settings
 from app.db.models import User
 from app.db.session import get_db
 
+logger = logging.getLogger(__name__)
 bearer = HTTPBearer(auto_error=False)
 
 
@@ -46,6 +48,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
             options={"require": ["exp", "iss", "sub", "aud"]},
         )
     except (jwt.PyJWTError, ValueError, RuntimeError) as exc:
+        logger.warning("Neon Auth rejected an access token: %s", type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="The access token is invalid or expired.",

@@ -12,13 +12,6 @@ export async function getAccessToken() {
   const tokenResult = await authClient.token();
   if (tokenResult.data?.token) return tokenResult.data.token;
 
-  const sessionResult = await authClient.getSession();
-  if (sessionResult.error) {
-    throw new Error(sessionResult.error.message || "Unable to restore your Neon Auth session.");
-  }
-  const sessionToken = sessionResult.data?.session?.token;
-  if (sessionToken) return sessionToken;
-
   if (tokenResult.error) throw new Error(tokenResult.error.message || "Unable to retrieve an access token.");
   throw new Error("Neon Auth returned no access token for this session. Please sign in again.");
 }

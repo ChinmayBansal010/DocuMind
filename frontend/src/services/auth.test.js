@@ -16,20 +16,16 @@ const { getAccessToken } = await import("./auth");
 describe("Neon access token", () => {
   afterEach(() => vi.clearAllMocks());
 
-  it("uses the JWT attached to the active session when the token endpoint has no token", async () => {
-    neon.client.token.mockResolvedValue({ data: {}, error: null });
-    neon.client.getSession.mockResolvedValue({
-      data: { session: { token: "session-jwt" }, user: { id: "user-1" } },
-      error: null,
-    });
+  it("uses the JWT returned by Neon Auth's token endpoint", async () => {
+    neon.client.token.mockResolvedValue({ data: { token: "access-jwt" }, error: null });
 
-    await expect(getAccessToken()).resolves.toBe("session-jwt");
+    await expect(getAccessToken()).resolves.toBe("access-jwt");
   });
 
-  it("surfaces the Neon Auth error when neither endpoint provides a token", async () => {
+  it("does not fall back to a potentially expired session JWT when token retrieval fails", async () => {
     neon.client.token.mockResolvedValue({ data: null, error: { message: "Auth service unavailable" } });
-    neon.client.getSession.mockResolvedValue({ data: { session: null, user: null }, error: null });
 
     await expect(getAccessToken()).rejects.toThrow("Auth service unavailable");
+    expect(neon.client.getSession).not.toHaveBeenCalled();
   });
 });
